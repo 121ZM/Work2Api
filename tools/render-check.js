@@ -432,6 +432,8 @@ let browser = null;
       JSON.stringify(badExp.slice(0, 2)));
     const zeroRows = trShown.filter((t) => /\s0 \/ 0\s/.test(t));
     assert(zeroRows.length === 0, 'TRAE 面板没有「0 / 0」的零额度行', JSON.stringify(zeroRows.slice(0, 2)));
+
+    await page.screenshot({ path: path.join(OUT, '08-trae-detail.png'), fullPage: true });
   }
 
   // ── 模型页 ──
