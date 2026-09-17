@@ -245,6 +245,9 @@ code,pre,.mono{font-family:var(--font-mono)}
 .pkg:last-of-type{border-bottom:0}
 .pkg .pn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pkg .pv{font-family:var(--font-mono);font-size:12px;color:hsl(var(--muted-foreground));white-space:nowrap}
+/* 权益包到期时间：已过期的染红，其余保持次要色 */
+.pkg .px{flex:none;font-size:11.5px;color:hsl(var(--muted-foreground));white-space:nowrap}
+.pkg .px.expired{color:hsl(var(--destructive))}
 .bar{height:6px;border-radius:999px;background:hsl(var(--muted));overflow:hidden;margin-top:4px}
 .bar i{display:block;height:100%;border-radius:999px;background:hsl(var(--primary))}
 .bar i.low{background:hsl(var(--amber-500))}
@@ -483,6 +486,12 @@ code,pre,.mono{font-family:var(--font-mono)}
     if(m < 60) return m + ' 分钟前';
     if(m < 1440) return Math.round(m / 60) + ' 小时前';
     return Math.round(m / 1440) + ' 天前';
+  }
+  // 到期时间只显示「月-日」，完整时间放 title —— 权益包一行还要放名称和额度，
+  // 再塞完整时间戳会把名称挤没。
+  function mmdd(sec){
+    var d = new Date(sec * 1000);
+    return ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
   }
   function copy(text, label){
     var ok = function(){ toast((label || '内容') + '已复制', 'ok'); };
@@ -868,7 +877,13 @@ code,pre,.mono{font-family:var(--font-mono)}
             var total = it.total || 0, remain = it.remain || 0;
             var pct = total > 0 ? Math.max(Math.round((remain / total) * 100), 0) : 0;
             var cls = remain <= 0 ? 'out' : (pct < 20 ? 'low' : '');
+            // 到期时间来自上游 DeductionEndTime（服务端已换算成 Unix 秒）。
+            // 取不到就整段不渲染 —— 不显示「未知」，避免和「已过期」混淆。
+            var ex = it.expire_at ? rel(it.expire_at) : null;
             return '<div class="pkg"><span class="pn">' + esc(it.name || '权益包') + '</span>' +
+              (ex ? '<span class="px' + (ex.variant === 'destructive' ? ' expired' : '') +
+                '" title="到期 ' + esc(ex.abs) + '">到期 ' + esc(mmdd(it.expire_at)) +
+                '（' + esc(ex.txt) + '）</span>' : '') +
               '<span class="pv">' + num(it.remain) + ' / ' + num(it.total) + '</span></div>' +
               '<div class="bar"><i class="' + cls + '" style="width:' + pct + '%"></i></div>';
           }).join('');

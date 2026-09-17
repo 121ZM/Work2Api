@@ -331,6 +331,10 @@ type resourceAccount struct {
 	CycleCapacitySize   int64  `json:"CycleCapacitySize"`
 	CycleCapacityRemain int64  `json:"CycleCapacityRemain"`
 	CycleCapacityUsed   int64  `json:"CycleCapacityUsed"`
+	// ---- 到期相关（实测结论见 expireAt）----
+	DeductionEndTime int64  `json:"DeductionEndTime"` // UTC 毫秒时间戳，恒有值
+	CycleEndTime     string `json:"CycleEndTime"`     // "2006-01-02 15:04:05"，北京时间
+	ExpiredTime      string `json:"ExpiredTime"`      // 时有时无；有值即为已过期
 }
 
 type resourceResp struct {
@@ -389,6 +393,34 @@ func (c *Client) UserResource(a *auth.Auth) (int64, error) {
 	return remain, nil
 }
 
+// cstZone 上游 CycleEndTime 用的是北京时间（UTC+8）。
+var cstZone = time.FixedZone("CST", 8*3600)
+
+// expireAt 取权益包的到期时间（Unix 秒），取不到返回 0。
+//
+// 实测依据（workbuddy/cn 真实账号，get-user-resource 返回 24 条权益包）：
+//
+//	DeductionEndTime  毫秒时间戳，24/24 条都有值
+//	CycleEndTime      "2006-01-02 15:04:05" 北京时间字符串，24/24 条都有值
+//	ExpiredTime       时有时无；有值的那些恰好都是已过期（剩余为 0）的包
+//
+// 且同一包的两个字段**换算后完全相等**，例如
+//
+//	DeductionEndTime = 1792195250000 (ms) → 1792195250 s → 2026-10-17T00:00:50Z
+//	CycleEndTime     = "2026-10-17 08:00:50" (CST) → 同一时刻
+//
+// 所以以 DeductionEndTime 为准（纯数值、无时区解析风险），
+// 缺失时才回退解析 CycleEndTime；两者都没有返回 0，面板显示「未知」而不是猜一个。
+func expireAt(acct resourceAccount) int64 {
+	if acct.DeductionEndTime > 0 {
+		return acct.DeductionEndTime / 1000
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", acct.CycleEndTime, cstZone); err == nil {
+		return t.Unix()
+	}
+	return 0
+}
+
 // UserResourceDetail 查询账号积分明细（所有套餐条目）。
 func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceItem, error) {
 	accounts, err := c.fetchResource(a)
@@ -402,6 +434,7 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 		total += remain
 		items = append(items, provider.ResourceItem{
 			Name: acct.PackageName, Total: t, Used: used, Remain: remain,
+			ExpireAt: expireAt(acct),
 		})
 	}
 	return total, items, nil

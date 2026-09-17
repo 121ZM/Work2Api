@@ -189,7 +189,7 @@ GET  /healthz                 健康检查（不鉴权）
 GET  /api/state                     全部渠道状态 + 账号明细
 POST /api/account/checkin           立即签到（{ "channel": "workbuddy/cn" } 可限定渠道）
 POST /api/account/refresh           刷新 token + 积分（{ "channel": ..., "uid": ... } 可限定）
-POST /api/account/resource          查单账号积分明细 → { total, items[] }
+POST /api/account/resource          查单账号积分明细 → { total, items[] }，每条含 expire_at
 POST /api/account/toggle            账号快关：{ "channel", "uid", "enabled" }，enabled 必填
 POST /api/import/local              扫描本机客户端凭证并导入（?dry_run=1 只扫描）
 POST /api/login/start               发起交互式登录 → { kind, region }
@@ -356,6 +356,30 @@ TRAE 的过滤规则（`traework.pickUserModels`）只保留：
 3. `developer` → `system` —— 上游对 `developer` 角色一律命中内容过滤
 4. 国际版补首条 `system` —— 见上表
 
+### 积分明细的字段（含到期时间）
+
+`get-user-resource` 返回的每个权益包里有三个和「到期」沾边的字段。实测
+（workbuddy/cn 真实账号，24 条权益包）后**只用其中一个**：
+
+| 字段 | 形态 | 实测表现 |
+|---|---|---|
+| `DeductionEndTime` | UTC **毫秒**戳 | 24/24 条都有值 ← **采用** |
+| `CycleEndTime` | `"2006-01-02 15:04:05"` **北京时间** | 24/24 条都有值 ← 仅作兜底 |
+| `ExpiredTime` | 同格式字符串 | **时有时无**；有值的那些恰好都是已过期（剩余 0）的包 |
+
+同一包的两个可用字段**换算后完全相等**，例如
+`DeductionEndTime = 1792195250000` → `1792195250` s → `2026-10-17T00:00:50Z`
+= `CycleEndTime = "2026-10-17 08:00:50"`（CST）。
+
+所以接口只暴露一个 `expire_at`（Unix 秒）：优先 `DeductionEndTime`，
+缺失时按 **CST** 解析 `CycleEndTime`，都没有则返回 0（面板整段不渲染 ——
+不显示「未知」，以免和「已过期」混淆）。面板上已过期的条目染红。
+
+`ExpiredTime` **刻意不用**：它表达的是「已过期」这个状态而不是到期时刻，
+且时有时无，拿来当到期时间会把「已过期」和「未提供」混为一谈。
+这几条口径锁在 `internal/upstream/resource_test.go`，其中
+`TestExpireAtFallsBackToCycleEndTime` 专门盯时区（按 UTC 误解析会差 28800 秒）。
+
 ### 错误处理
 
 请求形态类错误（`ErrClient`，如 `11128` / `11101`）**不重试、不冷却**，
@@ -389,7 +413,7 @@ TRAE 的过滤规则（`traework.pickUserModels`）只保留：
 - WorkBuddy global **静态表 20 个模型逐个真实调用**：筛出 11 个可用、剔除 8 个 `11102`、
   1 个模型特有 `429`（用同账号同刻的对照实验定性），该渠道最终对外 **12 个**
 - 本机凭证**导入**、账号池冷却与路由、面板全部交互
-  （68 项渲染断言 + 18 项冒烟断言 + 7 项静态校验）
+  （74 项渲染断言 + 18 项冒烟断言 + 7 项静态校验）
 
 ---
 
@@ -455,7 +479,7 @@ NODE_PATH="C:/Users/dev/.workbuddy-ai/binaries/node/workspace/node_modules" node
 go test ./... -cover
 ```
 
-共 **125** 个测试。选测什么的标准是「**有没有值得锁的不变量**」，
+共 **130** 个测试。选测什么的标准是「**有没有值得锁的不变量**」，
 不是「覆盖率低的都补」—— 反代项目里最该锁的，是从实测得来、
 又容易被后人「顺手改整齐」破坏的事实。
 
@@ -472,7 +496,7 @@ go test ./... -cover
 | `login` | 37.4% | region 由 `domain` 判定、相对 `Location` 解析、重定向跳数上限 |
 | `login_trae` | 32.1% | PKCE S256、回调参数解析 |
 | `server` | 16.9% | 模型缓存降级语义、粘性路由不复用已停用/冷却账号 |
-| `upstream` | 12.6% | 请求体改写不变量、「今天已签到」识别不吞真实错误 |
+| `upstream` | 13.6% | 请求体改写不变量、「今天已签到」识别不吞真实错误、**到期时间的字段取舍与时区** |
 | `traework` | 2.7% | 模型过滤三条规则（覆盖率低是因为该包大量代码是 HTTP 调用） |
 
 `app` 与 `loginsvc` **未测**（0%）：前者是装配层、后者是直接打网络的会话状态机 ——

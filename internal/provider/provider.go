@@ -202,6 +202,9 @@ type ResourceItem struct {
 	Total  int64  `json:"total"`
 	Used   int64  `json:"used"`
 	Remain int64  `json:"remain"`
+	// ExpireAt 该权益包的到期时间（Unix 秒），0 表示上游未给出。
+	// 取值口径见 upstream.expireAt 的注释（实测三个候选字段，只 DeductionEndTime 恒有值）。
+	ExpireAt int64 `json:"expire_at,omitempty"`
 }
 
 // Upstream 是 server / scheduler 依赖的最小上游能力集合。

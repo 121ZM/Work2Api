@@ -212,6 +212,60 @@ let browser = null;
   assert(barCheck.length > 0 && mismatch.length === 0,
     '每条用量条宽度与「剩余/总量」同口径（' + barCheck.length + ' 条）',
     JSON.stringify(mismatch.slice(0, 3)));
+
+  // ── 权益包到期时间 ──
+  // 断言的是「面板显示的到期日与接口返回的 expire_at 同口径」，不是「有个日期就行」。
+  const resResp = await fetch(BASE + '/api/account/resource', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: wbCn.channel, uid: wbCn.accounts[0].uid }),
+  });
+  assert(resResp.ok, '积分明细接口返回 200', String(resResp.status));
+  const resData = await resResp.json();
+  const allItems = resData.items || [];
+  const expItems = allItems.filter((i) => i.expire_at);
+  assert(expItems.length > 0,
+    `上游权益包里有 ${expItems.length}/${allItems.length} 条带到期时间`,
+    JSON.stringify(allItems.slice(0, 2)));
+
+  const expShown = await page.$$eval('.det .pkg .px', (els) => els.map((e) => e.textContent.trim()));
+  assert(expShown.length === expItems.length,
+    `面板渲染的「到期」条目数 = 带 expire_at 的条目数（${expItems.length}）`,
+    `${expShown.length} vs ${expItems.length}`);
+
+  // 逐条核对「月-日」，用与面板 mmdd() 相同的口径独立算一遍
+  const wantMMDD = expItems.map((i) => {
+    const d = new Date(i.expire_at * 1000);
+    return ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  });
+  const missExp = wantMMDD.filter((s) => !expShown.some((t) => t.includes(s)));
+  assert(missExp.length === 0, '面板显示的到期月-日与接口 expire_at 逐条一致',
+    '缺 ' + JSON.stringify(missExp.slice(0, 3)) + ' / 面板 ' + JSON.stringify(expShown.slice(0, 3)));
+
+  // 已过期的条目要染红。判定口径必须与面板 rel() 一致（按分钟四舍五入后 <= 0）。
+  const expiredWant = expItems.filter(
+    (i) => Math.round((i.expire_at * 1000 - Date.now()) / 60000) <= 0).length;
+  const redCount = await page.$$eval('.det .pkg .px.expired', (els) => els.length);
+  assert(redCount === expiredWant, `已过期的 ${expiredWant} 条染成红色`, `${redCount} vs ${expiredWant}`);
+
+  // 上面那条在当前数据下是**空转**的（实测 24 条权益包全部未过期，expiredWant=0，
+  // 断言恒真）。所以再造一个探针元素，实测 .px.expired 算出来的颜色确实是红色 ——
+  // 否则「染红」这个说法根本没被验证过。
+  const expColor = await page.evaluate(() => {
+    const host = document.querySelector('.det .pkg');
+    if (!host) return null;
+    const probe = document.createElement('span');
+    probe.className = 'px expired';
+    probe.textContent = '到期 01-01（已过期）';
+    host.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  });
+  // destructive = hsl(0 72% 51%) → 约 rgb(220, 40, 40)
+  const rgb = expColor ? expColor.match(/\d+/g).map(Number) : null;
+  assert(rgb && rgb[0] > 150 && rgb[0] > rgb[1] + 60 && rgb[0] > rgb[2] + 60,
+    '已过期样式实测为红色（探针元素，因当前数据无已过期条目）', String(expColor));
   }
 
   await page.screenshot({ path: path.join(OUT, '02-workbuddy-detail.png'), fullPage: true });
