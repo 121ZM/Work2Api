@@ -881,7 +881,10 @@ code,pre,.mono{font-family:var(--font-mono)}
       .then(function(j){
         var items = j.items || [];
         if(!items.length){
-          body.innerHTML = '上游未返回权益包明细';
+          // 服务端会过滤掉「额度为 0」和「已用完」的权益包，所以空列表有两种成因：
+          // 上游确实没返回，或者返回的包全部已用完。文案要涵盖两种，
+          // 只写「上游未返回」会在第二种情况下给出错误结论。
+          body.innerHTML = '没有可用的权益包（上游未返回，或返回的都已用完）';
           return;
         }
         var html =
@@ -893,6 +896,8 @@ code,pre,.mono{font-family:var(--font-mono)}
             // 结果 50/50 这种满额包被画成 1% 的告警条 —— 属于误导。
             var total = it.total || 0, remain = it.remain || 0;
             var pct = total > 0 ? Math.max(Math.round((remain / total) * 100), 0) : 0;
+            // 服务端已过滤 remain<=0，这里的 'out' 只是兜底：万一漏过来，
+            // 显示成「已用完」的灰条，总好过按 pct=0 当成低额度（琥珀色）告警条。
             var cls = remain <= 0 ? 'out' : (pct < 20 ? 'low' : '');
             // 到期时间直接给完整时刻（上游 DeductionEndTime，服务端已换算成 Unix 秒），
             // 不做「多少天后」的相对换算 —— 相对值每次刷新都在变，反而没法跟上游核对。

@@ -454,6 +454,22 @@ func packName(displayDesc, groupName string, idx int) string {
 	return fmt.Sprintf("权益包 %d", idx)
 }
 
+// keepResourceItem 判断一条权益包是否值得展示在积分明细里。
+//
+// 判据是「有没有剩余」：limit<=0 表示这个包本身没有额度（实测有过一条
+// credits_limit=0 的「免费」包），remain<=0 表示已经用完。两者对合计都是
+// 零贡献，留在面板上只是噪音 —— 实测 traework/cn 的第二个账号 33 条里
+// 有 25 条 remain=0，面板上就是连续 25 行「0 / 200」。
+//
+// 与 internal/upstream 的同名函数保持同一口径。两个包互不依赖，所以各留一份；
+// 改这里时那边也要改。
+//
+// 判据只看剩余、**不看到期时间**：到期时间已经在明细里单独显示（过期染红），
+// 不在这里重复判断，避免同一件事有两个口径。
+func keepResourceItem(limit, remain int64) bool {
+	return limit > 0 && remain > 0
+}
+
 // packExpireAt 取权益包到期时间（Unix 秒），取不到返回 0。
 //
 // 实测（traework/cn 真实账号，13 条权益包）：expire_time 与
@@ -503,16 +519,13 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 	items := make([]provider.ResourceItem, 0, len(resp.UserEntitlementPackList))
 	for i, p := range resp.UserEntitlementPackList {
 		limit := p.Base.Quota.CreditsLimit
-		// 额度为 0 的权益包直接跳过。实测 traework/cn 有一条「免费」包
-		// credits_limit=0 —— 它对合计没有任何贡献（remain 必为 0），
-		// 留在列表里只是噪音。
-		if limit <= 0 {
-			continue
-		}
 		used := p.Usage.CreditsAmount
 		remain := int64(limit - used)
 		if remain < 0 {
 			remain = 0
+		}
+		if !keepResourceItem(int64(limit), remain) {
+			continue
 		}
 		total += remain
 		items = append(items, provider.ResourceItem{

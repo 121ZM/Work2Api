@@ -241,6 +241,45 @@ let browser = null;
     `面板渲染的「到期」条目数 = 带 expire_at 的条目数（${expItems.length}）`,
     `${expShown.length} vs ${expItems.length}`);
 
+  // 过滤判据是「有没有剩余」：total<=0（额度本身为 0）与 remain<=0（已用完）都不进列表。
+  // 改动前 workbuddy/cn 实测 24 条里有 12 条 remain=0，面板上就是连续 12 行「0 / 100」。
+  const wbBad = allItems.filter((i) => !(i.total > 0 && i.remain > 0));
+  assert(wbBad.length === 0,
+    `WorkBuddy 明细已过滤掉额度为 0 / 已用完的条目（${allItems.length} 条全部有剩余）`,
+    JSON.stringify(wbBad.slice(0, 2)));
+
+  const wbShown = await page.$$eval('.det .pkg', (els) => els.length);
+  assert(wbShown === allItems.length,
+    `WorkBuddy 面板渲染 ${allItems.length} 条明细（与接口一致）`, String(wbShown));
+
+  // 「剩余为 0 的行」判定：读 .pv 的文本，用 ^ 锚定。
+  // **不能拿 .pkg 的整体 textContent 去 match /\s0 \/ /** —— span 之间没有空白，
+  // 数字前面紧挨的是时间戳的秒数（"…10:31:400 / 200"），那种正则永远匹配不到，
+  // 断言会变成空转（TRAE 上一版那条就是这么写的，见下方已修正）。
+  const wbZero = await page.$$eval('.det .pkg .pv',
+    (els) => els.map((e) => e.textContent.trim()).filter((t) => /^0\s*\//.test(t)));
+  assert(wbZero.length === 0, 'WorkBuddy 面板没有剩余为 0 的行', JSON.stringify(wbZero.slice(0, 2)));
+
+  // 上面那条在当前数据下同样是空转的（服务端已过滤干净），所以插一个探针 .pv
+  // 验证判定本身真能命中 —— 否则「没有 0 行」这个结论根本没被验证过。
+  const wbZeroProbe = await page.evaluate(() => {
+    const host = document.querySelector('.det .pkg');
+    if (!host) return null;
+    const probe = document.createElement('span');
+    probe.className = 'pv';
+    probe.textContent = '0 / 999';
+    host.appendChild(probe);
+    const hit = Array.from(document.querySelectorAll('.det .pkg .pv'))
+      .map((e) => e.textContent.trim()).filter((t) => /^0\s*\//.test(t)).length;
+    probe.remove();
+    return hit;
+  });
+  // 用 >= 1 而不是 === 1：这条探针的职责只是「证明判定能命中」，
+  // 不该跟数据耦合。若写成 === 1，一旦服务端漏过滤、面板上真出现 0 行，
+  // 这里会报成 13 之类的数字 —— 看着像探针坏了，实际是数据回归，
+  // 会把人的注意力引到错的地方。数据回归由上面两条断言负责。
+  assert(wbZeroProbe >= 1, '「剩余为 0」的判定确实能命中（探针元素）', String(wbZeroProbe));
+
   // 逐条核对「年-月-日 时:分:秒」，用与面板 fullTime() 相同的口径独立算一遍。
   // 断言完整时刻而不是「多少天后」—— 相对值每次刷新都在变，钉不住。
   const fmt = (sec) => {
@@ -414,8 +453,9 @@ let browser = null;
     assert(trItems.length > 0, `TRAE 明细返回 ${trItems.length} 条`, JSON.stringify(trData).slice(0, 150));
     assert(trItems.every((i) => i.expire_at), 'TRAE 每条明细都有到期时间',
       JSON.stringify(trItems.filter((i) => !i.expire_at).slice(0, 2)));
-    assert(trItems.every((i) => i.total > 0), 'TRAE 明细已过滤掉额度为 0 的条目',
-      JSON.stringify(trItems.filter((i) => i.total <= 0).slice(0, 2)));
+    assert(trItems.every((i) => i.total > 0 && i.remain > 0),
+      `TRAE 明细已过滤掉额度为 0 / 已用完的条目（${trItems.length} 条全部有剩余）`,
+      JSON.stringify(trItems.filter((i) => !(i.total > 0 && i.remain > 0)).slice(0, 2)));
     assert(!trItems.some((i) => /^权益包 \d+$/.test(i.name)),
       'TRAE 明细用上游显示名，不再是「权益包 N」',
       JSON.stringify(trItems.slice(0, 3).map((i) => i.name)));
@@ -430,8 +470,12 @@ let browser = null;
     const badExp = trShown.filter((t) => !/到期时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(t));
     assert(badExp.length === 0, 'TRAE 每条明细都显示了完整到期时间',
       JSON.stringify(badExp.slice(0, 2)));
-    const zeroRows = trShown.filter((t) => /\s0 \/ 0\s/.test(t));
-    assert(zeroRows.length === 0, 'TRAE 面板没有「0 / 0」的零额度行', JSON.stringify(zeroRows.slice(0, 2)));
+    // 原来这里写的是 /(\s)0 \/ 0\s/ 去 match .pkg 的整体文本 —— **永远匹配不到**
+    // （span 之间没有空白，数字前紧挨的是时间戳秒数），所以那条断言从来没生效过。
+    // 改成读 .pv 并用 ^ 锚定，语义变成「这一行的剩余确实是 0」。
+    const trZero = await page.$$eval('.det .pkg .pv',
+      (els) => els.map((e) => e.textContent.trim()).filter((t) => /^0\s*\//.test(t)));
+    assert(trZero.length === 0, 'TRAE 面板没有剩余为 0 的行', JSON.stringify(trZero.slice(0, 2)));
 
     await page.screenshot({ path: path.join(OUT, '08-trae-detail.png'), fullPage: true });
   }

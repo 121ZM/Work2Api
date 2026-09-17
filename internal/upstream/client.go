@@ -363,6 +363,18 @@ func (c *Client) fetchResource(a *auth.Auth) ([]resourceAccount, error) {
 	return resp.Response.Data.Accounts, nil
 }
 
+// keepResourceItem 判断一条权益包是否值得展示在积分明细里。
+//
+// 判据是「有没有剩余」：total<=0 表示这个包本身没有额度，remain<=0 表示已经用完。
+// 两者对合计都是零贡献，留在面板上只是噪音 —— 实测 workbuddy/cn 的 24 条里
+// 有 12 条 remain=0，面板上就是连续 12 行「0 / 100」。
+//
+// 判据只看剩余、**不看到期时间**：到期时间已经在明细里单独显示（过期染红），
+// 不在这里重复判断，避免同一件事有两个口径。
+func keepResourceItem(total, remain int64) bool {
+	return total > 0 && remain > 0
+}
+
 // pickRemain 按套餐字段形态挑出可用余额。
 func pickRemain(acct resourceAccount) (total, used, remain int64) {
 	switch {
@@ -431,10 +443,7 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 	items := make([]provider.ResourceItem, 0, len(accounts))
 	for _, acct := range accounts {
 		t, used, remain := pickRemain(acct)
-		// 额度为 0 的权益包跳过：它对合计没有贡献（total 为 0 时 remain 必为 0），
-		// 留在列表里只是噪音。实测 workbuddy/cn 当前没有这种条目，
-		// 但 traework/cn 有，两个渠道口径保持一致。
-		if t <= 0 {
+		if !keepResourceItem(t, remain) {
 			continue
 		}
 		total += remain

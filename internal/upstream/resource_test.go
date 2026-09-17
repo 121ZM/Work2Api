@@ -73,3 +73,74 @@ func TestExpireAtUnknownReturnsZero(t *testing.T) {
 		t.Errorf("负毫秒戳应回退（此处无兜底字段）返回 0，实际 %d", got)
 	}
 }
+
+// TestKeepResourceItem 锁住过滤判据：只看「有没有剩余」。
+//
+// 「已用完」那条是本次改动的核心 —— 旧判据只挡 total<=0，
+// 于是 workbuddy/cn 的 12 条「0 / 100」全都漏到了面板上。
+func TestKeepResourceItem(t *testing.T) {
+	cases := []struct {
+		name          string
+		total, remain int64
+		want          bool
+	}{
+		{"满额未动", 100, 100, true},
+		{"用了大半", 100, 73, true},
+		{"只剩 1 点", 100, 1, true},
+		{"已用完（本次改动要挡的就是它）", 100, 0, false},
+		{"额度本身为 0", 0, 0, false},
+		{"上游给负数", -1, -1, false},
+		{"异常：total=0 却有剩余（不该出现，但判据也不放行）", 0, 5, false},
+	}
+	for _, c := range cases {
+		if got := keepResourceItem(c.total, c.remain); got != c.want {
+			t.Errorf("%s: keepResourceItem(%d, %d) = %v，期望 %v",
+				c.name, c.total, c.remain, got, c.want)
+		}
+	}
+}
+
+// TestKeepResourceItemOnRealShape 用 workbuddy/cn 实测的 24 条形态跑一遍过滤。
+//
+// 样本逐条照抄 /api/account/resource 的真实返回（2026-09-17 实测），
+// 所以合计必须等于接口给出的 total=1929 —— 这同时校验了样本没抄错。
+//
+// 断言的是过滤的**正当性**：被滤掉的条目必须对合计零贡献，否则过滤会算错余额。
+// 若判据退化成「只判 total>0」（旧逻辑），kept 会变成 24 而不是 12，这里先红。
+func TestKeepResourceItemOnRealShape(t *testing.T) {
+	rows := [][3]int64{{500, 500, 0}, {5000, 5000, 0}, {1000, 93, 906}, {50, 0, 50}}
+	for i := 0; i < 10; i++ {
+		rows = append(rows, [3]int64{100, 100, 0})
+	}
+	rows = append(rows, [3]int64{100, 26, 73})
+	for i := 0; i < 9; i++ {
+		rows = append(rows, [3]int64{100, 0, 100})
+	}
+	if len(rows) != 24 {
+		t.Fatalf("样本应为实测的 24 条，实际 %d", len(rows))
+	}
+
+	var sumAll, sumKept int64
+	kept, dropped := 0, 0
+	for _, r := range rows {
+		sumAll += r[2]
+		if keepResourceItem(r[0], r[2]) {
+			kept++
+			sumKept += r[2]
+			continue
+		}
+		dropped++
+		if r[2] > 0 {
+			t.Errorf("把还有剩余 %d 的条目滤掉了（total=%d）—— 过滤会少算余额", r[2], r[0])
+		}
+	}
+	if sumAll != 1929 {
+		t.Fatalf("样本合计应为实测的 1929，实际 %d（样本抄错了）", sumAll)
+	}
+	if kept != 12 || dropped != 12 {
+		t.Errorf("实测样本应保留 12 条、滤掉 12 条，实际保留 %d、滤掉 %d", kept, dropped)
+	}
+	if sumKept != sumAll {
+		t.Errorf("过滤改变了合计：%d → %d", sumAll, sumKept)
+	}
+}
