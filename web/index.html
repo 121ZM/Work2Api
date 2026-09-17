@@ -222,6 +222,17 @@ code,pre,.mono{font-family:var(--font-mono)}
   display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .arow .meta .sep{color:hsl(var(--border))}
 .arow .acts{display:flex;flex-shrink:0;align-items:center;gap:4px}
+/* 快关：账号是否参与号池。关掉的行整体压暗，一眼能看出它不接流量。 */
+.arow.off .grow{opacity:.6}
+.sw{position:relative;flex:none;width:36px;height:20px;padding:0;margin-right:4px;
+  border:1px solid hsl(var(--border));border-radius:999px;background:hsl(var(--muted));
+  cursor:pointer;transition:background .16s ease,border-color .16s ease}
+.sw .knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:hsl(var(--card));box-shadow:0 1px 2px hsl(var(--foreground) / .3);
+  transition:transform .16s ease}
+.sw[aria-checked="true"]{background:hsl(var(--emerald-500));border-color:hsl(var(--emerald-500))}
+.sw[aria-checked="true"] .knob{transform:translateX(16px)}
+.sw:disabled{opacity:.45;pointer-events:none}
 .mono-sm{font-family:var(--font-mono);font-size:12px}
 
 .det{border-top:1px solid hsl(var(--border) / .6);background:hsl(var(--muted) / .35);padding:16px 20px}
@@ -671,8 +682,12 @@ code,pre,.mono{font-family:var(--font-mono)}
         '该版本的账号会被调度器整池跳过，不计失败、不进入冷却，也不会查询签到积分。</div></div></div>';
     }
 
+    // 有账号被移出号池时在标题上补一个「进池 N」—— 只看总数会以为它们都在接流量。
+    var inPool = ((ch && ch.accounts) || []).filter(function(a){ return !a.disabled; }).length;
     h += '<h2 class="sec-h">' + ic('archive', 14) + '已接入账号' +
-      '<span class="badge muted tiny">' + (ch ? ch.total : 0) + '</span></h2>';
+      '<span class="badge muted tiny">' + (ch ? ch.total : 0) + '</span>' +
+      (ch && inPool < ch.total
+        ? '<span class="badge warn tiny">进池 ' + inPool + '</span>' : '') + '</h2>';
 
     if(!ch || !ch.accounts || !ch.accounts.length){
       h += '<div class="card dashed"><div class="empty">' + ic('archive', 24) +
@@ -714,7 +729,7 @@ code,pre,.mono{font-family:var(--font-mono)}
       esc(exp.txt) + '</span>';
     else badges += '<span class="badge muted">无过期时间</span>';
 
-    var h = '<div class="arow" data-key="' + esc(key) + '">' +
+    var h = '<div class="arow' + (a.disabled ? ' off' : '') + '" data-key="' + esc(key) + '">' +
       '<div class="grow"><div class="nm">' + esc(a.nickname || '未命名') + badges + '</div>' +
         '<div class="meta">' +
           '<span class="mono-sm">' + esc(a.uid) + '</span><span class="sep">·</span>' +
@@ -726,11 +741,15 @@ code,pre,.mono{font-family:var(--font-mono)}
             (a.last_checkin_at ? esc(a.last_checkin_msg || ago(a.last_checkin_at))
                                : '本次运行尚未执行') + '</span>' : '') +
         '</div>' +
-        (a.disabled && a.disabled_reason ? '<div class="meta">' + esc(a.disabled_reason) + '</div>' : '') +
+        (a.disabled ? '<div class="meta">' + esc(disabledLabel(a.disabled_reason)) + '</div>' : '') +
         (a.cooldown_reason ? '<div class="meta">' + esc(a.cooldown_reason) + '</div>' : '') +
         (a.last_err ? '<div class="meta">' + esc(a.last_err) + '</div>' : '') +
       '</div>' +
       '<div class="acts">' +
+        '<button class="sw" role="switch" data-sw aria-checked="' + (a.disabled ? 'false' : 'true') +
+          '" title="' + (a.disabled ? '已移出号池，点一下开进号池'
+                                    : '在号池中，点一下移出号池（不再被选号）') + '">' +
+          '<span class="knob"></span></button>' +
         btn('outline sm', '详情', 'chev', ' data-det') +
         btn('outline sm', '刷新', 'refresh', ' data-ref') +
         (ch.checkin_supported ? btn('outline sm', '签到', 'check', ' data-ck') : '') +
@@ -739,6 +758,14 @@ code,pre,.mono{font-family:var(--font-mono)}
       (isOpen ? detailHTML(ch, a) : '') +
       '</div>';
     return h;
+  }
+
+  // disabled_reason 是内部枚举（"manual" / "session_dead"），直接显示太生硬，
+  // 也分不清「是我自己关的」还是「服务自动关的」。
+  function disabledLabel(r){
+    if(r === 'manual') return '已手动移出号池';
+    if(r === 'session_dead') return '会话已失效，服务自动停用（重新登录后可开启）';
+    return r || '已停用';
   }
 
   function detailHTML(ch, a){
@@ -790,7 +817,30 @@ code,pre,.mono{font-family:var(--font-mono)}
       if(cp) cp.onclick = function(){ copy(acct.uid, '账号 ID'); };
       var rs = row.querySelector('[data-res]');
       if(rs) rs.onclick = function(){ loadResource(ch, acct, key, true); };
+      var sw = row.querySelector('[data-sw]');
+      if(sw) sw.onclick = function(){ toggleAccount(ch, acct, sw); };
     });
+  }
+
+  // 快关：开启才进入号池。底层就是 pool 的 disabled 标志 ——
+  // 与「会话失效被服务自动停用」共用同一个字段，所以关掉后 Healthy() 也会少一个。
+  function toggleAccount(ch, a, el){
+    var next = !!a.disabled;   // 当前停用 → 本次动作是「开启」
+    var who = a.nickname || String(a.uid).slice(0, 8);
+    el.disabled = true;
+    api('/api/account/toggle', { method:'POST',
+        body: JSON.stringify({ channel: ch.channel, uid: a.uid, enabled: next }) })
+      .then(function(){
+        // 开启会顺带清掉冷却与错误计数，这点必须说清楚，否则用户会以为
+        // 「明明冷却中，怎么一开就接流量了」。
+        toast(next ? who + ' 已开进号池' + (a.cooldown_until ? '（同时清除了冷却）' : '')
+                   : who + ' 已移出号池，不再被选号', next ? 'ok' : undefined);
+        return refresh();
+      })
+      .catch(function(e){
+        toast((next ? '开启' : '移出') + '号池失败：' + e.message, 'err');
+      })
+      .finally(function(){ el.disabled = false; });
   }
 
   function loadResource(ch, a, key, force){

@@ -216,6 +216,82 @@ let browser = null;
 
   await page.screenshot({ path: path.join(OUT, '02-workbuddy-detail.png'), fullPage: true });
 
+  // ── 账号快关：开启才进入号池 ──
+  // 「按钮渲染出来了」挡不住漏绑 onclick，所以这里真点一次，并且回查 /api/state
+  // 确认服务端状态与号池健康数同步变化。
+  // 注意：这会临时改动真实账号状态，因此用 try/finally 保证无论如何都复原。
+  const swCount = await page.$$eval('.arow[data-key] [data-sw]', (els) => els.length);
+  assert(swCount === wbCn.total, `每个账号行都有快关（${swCount} 个）`, String(swCount));
+
+  if (wbCn.total > 0) {
+    const target = wbCn.accounts[0];
+    const sel = `.arow[data-key="${wbCn.channel}|${target.uid}"]`;
+    const wasDisabled = !!target.disabled;
+    const baseHealthy = wbCn.healthy;
+    const readSw = () => page.$eval(`${sel} [data-sw]`, (e) => e.getAttribute('aria-checked'));
+
+    const sw0 = await readSw();
+    assert(sw0 === (wasDisabled ? 'false' : 'true'),
+      '快关初始状态与 /api/state 的 disabled 一致', sw0 + ' vs disabled=' + wasDisabled);
+
+    // 缺 enabled 必须 400，不能拿零值 false 静默把账号停掉。
+    const missing = await fetch(BASE + '/api/account/toggle', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: wbCn.channel, uid: target.uid }),
+    });
+    assert(missing.status === 400, '缺 enabled 字段时返回 400（不会静默停用账号）', String(missing.status));
+
+    // 点一下 = 状态翻转：在池 → 移出，已移出 → 开进池
+    const wantEnabled = wasDisabled;
+    try {
+      await page.click(`${sel} [data-sw]`);
+      await page.waitForFunction(
+        ([s, want]) => {
+          const e = document.querySelector(s + ' [data-sw]');
+          return !!e && e.getAttribute('aria-checked') === want;
+        },
+        [sel, wantEnabled ? 'true' : 'false'],
+        { timeout: 10000 },
+      );
+
+      const st = await api('/api/state');
+      const c = st.channels.find((x) => x.channel === wbCn.channel);
+      const acct = c.accounts.find((a) => a.uid === target.uid);
+      assert(acct.disabled === !wantEnabled,
+        `点快关后服务端 disabled 变为 ${!wantEnabled}`, String(acct.disabled));
+      assert(c.healthy === baseHealthy + (wantEnabled ? 1 : -1),
+        `号池健康数随之${wantEnabled ? ' +1' : ' -1'}（${baseHealthy} → ${c.healthy}）`,
+        `${baseHealthy} → ${c.healthy}`);
+
+      if (!wantEnabled) {
+        const cls = await page.$eval(sel, (e) => e.className);
+        assert(/\boff\b/.test(cls), '移出号池的行带 .off 压暗类', cls);
+        const rowText = await page.$eval(sel, (e) => e.textContent.replace(/\s+/g, ' '));
+        assert(/已停用/.test(rowText), '移出号池的行显示「已停用」徽标', rowText.slice(0, 120));
+        assert(/已手动移出号池/.test(rowText),
+          '停用原因渲染成中文文案（不是原始枚举 manual）', rowText.slice(0, 160));
+      }
+    } finally {
+      // 无论上面成败，都不许把用户的账号留在被改动后的状态
+      const cur = await api('/api/state');
+      const cc = cur.channels.find((x) => x.channel === wbCn.channel);
+      const ca = cc.accounts.find((a) => a.uid === target.uid);
+      if (!!ca.disabled !== wasDisabled) {
+        const r = await fetch(BASE + '/api/account/toggle', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: wbCn.channel, uid: target.uid, enabled: !wasDisabled }),
+        });
+        ok('快关测试后已复原账号状态（enabled=' + !wasDisabled + '，HTTP ' + r.status + '）');
+      }
+      await page.click('.nav-item[data-nav="workbuddy"]');
+      await page.waitForTimeout(300);
+      await page.click('.seg button:nth-child(1)');
+      await page.waitForTimeout(300);
+    }
+  }
+
   // 切到国际版
   await page.click('.seg button:nth-child(2)');
   await page.waitForTimeout(400);

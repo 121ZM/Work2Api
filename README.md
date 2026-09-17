@@ -73,6 +73,34 @@ region.CheckinSupported(kind, region)   // 仅 cn 返回 true
 独立账号池，冷却、熔断、积分排序互不影响。模型名带前缀就锁定池；用聚合别名
 （`workbuddy/<model>`）才在 cn / global 之间挑，**国内版优先**。
 
+### 账号快关：开启才进入号池
+
+面板「已接入账号」列表里，每个账号行最左边是一个开关（`.sw`）。**开启才进入号池**，
+关掉的账号不会被任何请求选中 —— 适合临时雪藏某个号（例如想留着积分给别的用途），
+而不必把它从凭证目录里删掉。
+
+| 开关 | 底层 | 效果 |
+|---|---|---|
+| 开 | `disabled = false` | 正常参与 `Pick()` 选号，计入 `Healthy()` |
+| 关 | `disabled = true`，原因 `manual` | `Pick()` / `UsableAuth()` 一律跳过，不计入 `Healthy()`，行整体压暗并显示「已停用」 |
+
+对应的接口是 `POST /api/account/toggle`，`enabled` 字段**必填**（缺失返回 400，
+不会拿零值 `false` 静默把账号停掉）。
+
+几点需要知道的：
+
+- **复用的是同一个 `disabled` 标志**，没有为「退出号池」另造字段。因为
+  `Pick()` / `UsableAuth()` / `Healthy()` 已经全部认这个标志，另起一个意味着
+  每个可用性判断都得同时看两处，迟早漂移 —— 粘性路由就踩过这类坑（见上一节）。
+  所以「会话失效自动停用」（`session_dead`）与「手动移出」（`manual`）是同一个字段的
+  两种原因，面板据此显示不同文案。
+- **开启会一并清掉冷却与错误计数**（`SetDisabled(false)` 的行为），也就是「手动开回来」
+  等价于一次强制复位。**这是有意为之** —— 否则积分不足进了 12h 长冷却的账号，
+  用户没有任何手动覆盖手段。但要清楚：手动开启后它会**立刻重新接流量**，
+  哪怕积分问题并没解决。面板的 toast 会提示「同时清除了冷却」。
+- **持久化在 `data/state-<kind>-<region>.json`**，重启后保持。这条不变量锁在
+  `TestDisabledSurvivesStateRoundTrip`（变异验证过：拿掉持久化该测试立刻变红）。
+
 ### 选号顺序（`pool.better`，三段）
 
 跳过已停用与冷却中的账号后：
@@ -161,6 +189,8 @@ GET  /healthz                 健康检查（不鉴权）
 GET  /api/state                     全部渠道状态 + 账号明细
 POST /api/account/checkin           立即签到（{ "channel": "workbuddy/cn" } 可限定渠道）
 POST /api/account/refresh           刷新 token + 积分（{ "channel": ..., "uid": ... } 可限定）
+POST /api/account/resource          查单账号积分明细 → { total, items[] }
+POST /api/account/toggle            账号快关：{ "channel", "uid", "enabled" }，enabled 必填
 POST /api/import/local              扫描本机客户端凭证并导入（?dry_run=1 只扫描）
 POST /api/login/start               发起交互式登录 → { kind, region }
 GET  /api/login/poll                轮询登录状态 → { kind, region }
@@ -359,7 +389,7 @@ TRAE 的过滤规则（`traework.pickUserModels`）只保留：
 - WorkBuddy global **静态表 20 个模型逐个真实调用**：筛出 11 个可用、剔除 8 个 `11102`、
   1 个模型特有 `429`（用同账号同刻的对照实验定性），该渠道最终对外 **12 个**
 - 本机凭证**导入**、账号池冷却与路由、面板全部交互
-  （53 项渲染断言 + 18 项冒烟断言 + 7 项静态校验）
+  （68 项渲染断言 + 18 项冒烟断言 + 7 项静态校验）
 
 ---
 
@@ -425,7 +455,7 @@ NODE_PATH="C:/Users/dev/.workbuddy-ai/binaries/node/workspace/node_modules" node
 go test ./... -cover
 ```
 
-共 **123** 个测试。选测什么的标准是「**有没有值得锁的不变量**」，
+共 **125** 个测试。选测什么的标准是「**有没有值得锁的不变量**」，
 不是「覆盖率低的都补」—— 反代项目里最该锁的，是从实测得来、
 又容易被后人「顺手改整齐」破坏的事实。
 
@@ -438,7 +468,7 @@ go test ./... -cover
 | `provider` | 75.0% | 模型 ID 往返闭环、静态表实测清单、黑名单按 region 独立 |
 | `config` | 58.5% | Key 自动生成与写回、环境变量不落盘 |
 | `scheduler` | 44.3% | 「今天已签到」记成功且不冷却、国际版整池跳过、签到失败不冷却 |
-| `pool` | 41.8% | 三段选号排序、`Auth` 与 `UsableAuth` 的语义差异 |
+| `pool` | 68.5% | 三段选号排序、`Auth` 与 `UsableAuth` 的语义差异、**快关跨重启持久化** |
 | `login` | 37.4% | region 由 `domain` 判定、相对 `Location` 解析、重定向跳数上限 |
 | `login_trae` | 32.1% | PKCE S256、回调参数解析 |
 | `server` | 16.9% | 模型缓存降级语义、粘性路由不复用已停用/冷却账号 |

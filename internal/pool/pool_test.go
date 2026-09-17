@@ -223,3 +223,82 @@ func TestDisabledAccountNotCountedHealthy(t *testing.T) {
 		t.Errorf("停用一个后健康数应为 1，实际 %d", n)
 	}
 }
+
+// TestOnlyEnabledAccountsEnterPool 直接表达「开启才进入号池」这条需求：
+// 关掉的账号一个都不该被选到，全部关掉则池子必须报空。
+func TestOnlyEnabledAccountsEnterPool(t *testing.T) {
+	p := New(testChannel(), Config{})
+	p.Add(testAuth("u1"))
+	p.Add(testAuth("u2"))
+
+	if _, err := p.Pick(); err != nil {
+		t.Fatalf("初始应能选到账号: %v", err)
+	}
+	p.SetDisabled("u1", true, "manual")
+	p.SetDisabled("u2", true, "manual")
+	if _, err := p.Pick(); !errors.Is(err, ErrNoAccount) {
+		t.Errorf("全部移出号池后应返回 ErrNoAccount，实际 %v", err)
+	}
+	// 只开回来一个：立刻又能选到，且必须正好是刚开启的那个
+	if !p.SetDisabled("u1", false, "") {
+		t.Fatal("SetDisabled(false) 失败")
+	}
+	got, err := p.Pick()
+	if err != nil {
+		t.Fatalf("重新开启后应能选到账号: %v", err)
+	}
+	if got.UID != "u1" {
+		t.Errorf("选到的应是刚开启的 u1，实际 %s", got.UID)
+	}
+}
+
+// TestDisabledSurvivesStateRoundTrip 锁住快关的**持久化**。
+//
+// 面板上的快关改的就是 disabled 标志；SaveState / LoadState 一旦漏掉它，
+// 表现是「重启后账号自己又进池了」—— 只在重启时暴露的假功能，
+// 用户还会以为是自己没点到。所以这条必须钉死。
+func TestDisabledSurvivesStateRoundTrip(t *testing.T) {
+	path := t.TempDir() + "/state.json"
+
+	src := New(testChannel(), Config{})
+	src.Add(testAuth("u1"))
+	src.Add(testAuth("u2"))
+	if !src.SetDisabled("u1", true, "manual") {
+		t.Fatal("SetDisabled 失败，测试前提不成立")
+	}
+	if err := src.SaveState(path); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	// 模拟重启：新池、同样两个账号，从磁盘恢复运行态
+	dst := New(testChannel(), Config{})
+	dst.Add(testAuth("u1"))
+	dst.Add(testAuth("u2"))
+	if err := dst.LoadState(path); err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+
+	states := map[string]State{}
+	for _, s := range dst.List() {
+		states[s.UID] = s
+	}
+	if !states["u1"].Disabled {
+		t.Error("u1 重启后应仍处于停用（快关保持关闭）")
+	}
+	if states["u1"].DisabledReason != "manual" {
+		t.Errorf("停用原因应保留 manual，实际 %q", states["u1"].DisabledReason)
+	}
+	if states["u2"].Disabled {
+		t.Error("u2 不该被顺带停用")
+	}
+	if n := dst.Healthy(); n != 1 {
+		t.Errorf("重启后健康数应为 1（只剩 u2），实际 %d", n)
+	}
+	got, err := dst.Pick()
+	if err != nil {
+		t.Fatalf("u2 仍在池中，Pick 不该失败: %v", err)
+	}
+	if got.UID != "u2" {
+		t.Errorf("重启后应选到 u2，实际 %s", got.UID)
+	}
+}

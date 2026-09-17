@@ -291,6 +291,7 @@ func (a *App) attachAPI(mux *http.ServeMux, protect func(http.HandlerFunc) http.
 	mux.HandleFunc("POST /api/account/checkin", protect(a.apiCheckin))
 	mux.HandleFunc("POST /api/account/refresh", protect(a.apiRefresh))
 	mux.HandleFunc("POST /api/account/resource", protect(a.apiResource))
+	mux.HandleFunc("POST /api/account/toggle", protect(a.apiToggleAccount))
 	mux.HandleFunc("POST /api/import/local", protect(a.apiImportLocal))
 	mux.HandleFunc("POST /api/login/start", protect(a.apiLoginStart))
 	mux.HandleFunc("GET /api/login/poll", protect(a.apiLoginPoll))
@@ -484,6 +485,61 @@ func findChannel(s string) (provider.Channel, bool) {
 		}
 	}
 	return provider.Channel{}, false
+}
+
+// apiToggleAccount 把一个账号开进 / 移出号池（面板账号列表上的「快关」）。
+//
+// 语义刻意复用 pool 的 disabled 标志，而不是新造一个「是否参与号池」字段：
+// Pick() / UsableAuth() / Healthy() 已经全部认这个标志，另起一个字段意味着
+// 每个可用性判断都得同时看两处，迟早漂移 —— 粘性路由就踩过这类坑
+// （见 internal/server/handler.go 里 pick() 的注释）。
+//
+// 副作用：SetDisabled(false, "") 会一并清掉错误计数与冷却。也就是「手动开回来」
+// 等价于一次强制复位 —— 积分不足进了 12h 冷却的账号，手动开启会立刻重新参与选号。
+// 这是有意为之（否则用户没有任何手动覆盖手段），但面板必须如实告知。
+func (a *App) apiToggleAccount(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Channel string `json:"channel"`
+		UID     string `json:"uid"`
+		// 用指针：字段缺失必须报错，不能零值 false 静默把账号停掉。
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPI(w, http.StatusBadRequest, map[string]any{"error": "请求体解析失败: " + err.Error()})
+		return
+	}
+	if req.Enabled == nil {
+		writeAPI(w, http.StatusBadRequest, map[string]any{
+			"error": "缺少 enabled（true = 开进号池 / false = 移出号池）"})
+		return
+	}
+	ch, ok := findChannel(req.Channel)
+	if !ok {
+		writeAPI(w, http.StatusBadRequest, map[string]any{"error": "未知渠道 " + req.Channel})
+		return
+	}
+	p := a.pools[ch]
+	if p == nil {
+		writeAPI(w, http.StatusServiceUnavailable, map[string]any{"error": "该渠道未装配"})
+		return
+	}
+	// 停用原因写 "manual" 以区分内部自动停用（"session_dead"），面板据此显示不同文案。
+	reason := ""
+	if !*req.Enabled {
+		reason = "manual"
+	}
+	if !p.SetDisabled(req.UID, !*req.Enabled, reason) {
+		writeAPI(w, http.StatusNotFound, map[string]any{"error": "账号不存在: " + req.UID})
+		return
+	}
+	a.saveAllStates()
+	writeAPI(w, http.StatusOK, map[string]any{
+		"channel": ch.String(),
+		"uid":     req.UID,
+		"enabled": *req.Enabled,
+		"healthy": p.Healthy(),
+		"total":   p.Len(),
+	})
 }
 
 // apiImportLocal 扫描本机客户端凭证并导入。
