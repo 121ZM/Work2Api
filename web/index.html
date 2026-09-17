@@ -487,11 +487,12 @@ code,pre,.mono{font-family:var(--font-mono)}
     if(m < 1440) return Math.round(m / 60) + ' 小时前';
     return Math.round(m / 1440) + ' 天前';
   }
-  // 到期时间只显示「月-日」，完整时间放 title —— 权益包一行还要放名称和额度，
-  // 再塞完整时间戳会把名称挤没。
-  function mmdd(sec){
-    var d = new Date(sec * 1000);
-    return ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  // 到期时间按「年-月-日 时:分:秒」原样显示，**不做**「多少天后」的相对换算 ——
+  // 相对值每次刷新都在变，反而没法跟上游给的时刻核对。
+  function fullTime(sec){
+    var d = new Date(sec * 1000), p = function(n){ return ('0' + n).slice(-2); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   }
   function copy(text, label){
     var ok = function(){ toast((label || '内容') + '已复制', 'ok'); };
@@ -516,6 +517,12 @@ code,pre,.mono{font-family:var(--font-mono)}
   var state = null, models = null;
   var route = { page: 'overview', edition: {} };   // edition: {workbuddy:'cn', trae:'cn'}
   var openDet = {};
+  // 积分明细的渲染结果缓存，键为 "渠道|uid"。
+  //
+  // 必须放在 JS 侧而不是 DOM 上的 data-loaded：每次重渲染 #view 都是全新的 DOM，
+  // dataset 会丢 —— 于是「展开过但没缓存」的状态无法区分于「从没查过」，
+  // 要么白打一次上游，要么（实际发生的）明细被冲掉且不重查。
+  var resCache = {};
 
   // id 必须等于后端 provider.Kind 的字符串值（TRAE 的规范值是 "traework"，
   // 不是 "trae"）—— /api/state 的 channels[].kind、登录接口回显的 kind
@@ -666,7 +673,10 @@ code,pre,.mono{font-family:var(--font-mono)}
           ? '腾讯 CodeBuddy 的两种发行版，账号库与签到体系各自独立。'
           : 'TRAE SOLO 的两种发行版。凭证为加密存储，只能通过网页授权登录。') +
       '</p></div>' +
-      '<button class="btn primary sm" id="btnLogin">' + ic('plus', 14) + '登录新账号</button>' +
+      '<div style="display:flex;flex:none;gap:8px">' +
+        btn('outline sm', '刷新状态', 'refresh', ' id="btnRefresh"') +
+        '<button class="btn primary sm" id="btnLogin">' + ic('plus', 14) + '登录新账号</button>' +
+      '</div>' +
       '</header>';
 
     // 版本切换
@@ -716,6 +726,8 @@ code,pre,.mono{font-family:var(--font-mono)}
     var cur = route.edition[fam.id] || 'cn';
     var lg = $('btnLogin');
     if(lg) lg.onclick = function(){ startLogin(fam.id, cur, this); };
+    var rf = $('btnRefresh');
+    if(rf) rf.onclick = function(){ refreshBtn(rf); };
     $('view').querySelectorAll('[data-ed]').forEach(function(b){
       b.onclick = function(){ route.edition[fam.id] = b.getAttribute('data-ed'); render(); };
     });
@@ -779,6 +791,7 @@ code,pre,.mono{font-family:var(--font-mono)}
 
   function detailHTML(ch, a){
     var exp = rel(a.expires_at);
+    var key = ch.channel + '|' + a.uid;
     var cells = [
       ['账号 ID', a.uid, true],
       ['渠道', ch.channel, true],
@@ -799,7 +812,7 @@ code,pre,.mono{font-family:var(--font-mono)}
         btn('ghost sm', '重新查询', '', ' data-res') +
       '</div>' +
       '<div data-resbody style="margin-top:4px;font-size:12px;color:hsl(var(--muted-foreground))">' +
-        '展开时自动查询…</div>' +
+        (resCache[key] || '展开时自动查询…') + '</div>' +
       '</div>';
   }
 
@@ -828,6 +841,9 @@ code,pre,.mono{font-family:var(--font-mono)}
       if(rs) rs.onclick = function(){ loadResource(ch, acct, key, true); };
       var sw = row.querySelector('[data-sw]');
       if(sw) sw.onclick = function(){ toggleAccount(ch, acct, sw); };
+      // 详情展开着但缓存里还没有（例如刚渲染完、或上次查询失败）→ 补一次。
+      // 有缓存时 detailHTML 已经把内容渲染进 DOM，这里会直接返回，不重复打上游。
+      if(openDet[key]) loadResource(ch, acct, key);
     });
   }
 
@@ -857,8 +873,9 @@ code,pre,.mono{font-family:var(--font-mono)}
     if(!row) return;
     var body = row.querySelector('[data-resbody]');
     if(!body) return;
-    if(body.dataset.loaded && !force) return;
-    body.dataset.loaded = '1';
+    // 命中缓存就直接返回：detailHTML 已经把缓存内容渲染进 DOM 了，
+    // 这里再打一次上游纯属浪费（这是「不一直查询」的另一半）。
+    if(resCache[key] && !force) return;
     body.innerHTML = '<span class="spin"></span> 查询中…';
     api('/api/account/resource', { method:'POST', body: JSON.stringify({ channel: ch.channel, uid: a.uid }) })
       .then(function(j){
@@ -867,7 +884,7 @@ code,pre,.mono{font-family:var(--font-mono)}
           body.innerHTML = '上游未返回权益包明细';
           return;
         }
-        body.innerHTML =
+        var html =
           '<div style="font-size:13px;color:hsl(var(--foreground));margin-bottom:8px">合计剩余 ' +
             '<b class="mono-sm">' + num(j.total) + '</b></div>' +
           items.map(function(it){
@@ -877,20 +894,22 @@ code,pre,.mono{font-family:var(--font-mono)}
             var total = it.total || 0, remain = it.remain || 0;
             var pct = total > 0 ? Math.max(Math.round((remain / total) * 100), 0) : 0;
             var cls = remain <= 0 ? 'out' : (pct < 20 ? 'low' : '');
-            // 到期时间来自上游 DeductionEndTime（服务端已换算成 Unix 秒）。
-            // 取不到就整段不渲染 —— 不显示「未知」，避免和「已过期」混淆。
-            var ex = it.expire_at ? rel(it.expire_at) : null;
+            // 到期时间直接给完整时刻（上游 DeductionEndTime，服务端已换算成 Unix 秒），
+            // 不做「多少天后」的相对换算 —— 相对值每次刷新都在变，反而没法跟上游核对。
+            // 取不到就整段不渲染，不显示「未知」，以免和「已过期」混淆。
+            var expired = it.expire_at && it.expire_at * 1000 < Date.now();
             return '<div class="pkg"><span class="pn">' + esc(it.name || '权益包') + '</span>' +
-              (ex ? '<span class="px' + (ex.variant === 'destructive' ? ' expired' : '') +
-                '" title="到期 ' + esc(ex.abs) + '">到期 ' + esc(mmdd(it.expire_at)) +
-                '（' + esc(ex.txt) + '）</span>' : '') +
+              (it.expire_at ? '<span class="px' + (expired ? ' expired' : '') + '">到期时间：' +
+                esc(fullTime(it.expire_at)) + '</span>' : '') +
               '<span class="pv">' + num(it.remain) + ' / ' + num(it.total) + '</span></div>' +
               '<div class="bar"><i class="' + cls + '" style="width:' + pct + '%"></i></div>';
           }).join('');
+        resCache[key] = html;
+        body.innerHTML = html;
         a.remain = j.total; a.has_remain = true;
       })
       .catch(function(e){
-        body.dataset.loaded = '';
+        // 刻意不写缓存：失败允许下次重试
         body.innerHTML = '<span style="color:hsl(var(--destructive))">' + esc(e.message) + '</span>';
       });
   }
@@ -1194,6 +1213,14 @@ code,pre,.mono{font-family:var(--font-mono)}
       .finally(function(){ b.disabled = false; });
   }
 
+  // 手动刷新状态。去掉定时轮询后，这是渠道页上「让面板数据变新」的显式入口。
+  // 复用 refresh() 而不是另写一份请求 —— 它里面还有 401（Key 与服务端不一致）的
+  // 专门提示，重写一遍迟早漏掉那条分支。
+  function refreshBtn(b){
+    b.disabled = true;
+    refresh().finally(function(){ b.disabled = false; });
+  }
+
   function checkinChannel(ch, b){
     b.disabled = true;
     api('/api/account/checkin', { method:'POST', body: JSON.stringify({ channel: ch.channel }) })
@@ -1357,9 +1384,18 @@ code,pre,.mono{font-family:var(--font-mono)}
   renderNav();
   $('view').innerHTML = skeletons();
   refresh();
-  setInterval(function(){
-    if(!$('modalHost').innerHTML && document.visibilityState === 'visible') refresh();
-  }, 20000);
+  // 刻意**不做定时轮询**。
+  //
+  // 原来的 setInterval(…, 20000) 有两个问题：一是没必要 —— 服务端状态只在我们
+  // 自己的操作（签到 / 刷新 / 开关 / 登录）之后才变，没人动它就不会变；二是**有害** ——
+  // 每次 refresh() 都会整体重渲染，把已展开的积分明细冲回「展开时自动查询…」
+  // （实测：展开后等 20 秒，24 条明细变 0 条，且不会自动重查）。
+  //
+  // 改为按需刷新：各操作后已有的 refresh() 不变；切走再切回来时补一次，
+  // 免得看到明显过期的数据；渠道页另加了「刷新状态」按钮。
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') refresh();
+  });
 })();
 </script>
 </body>

@@ -75,6 +75,14 @@ let browser = null;
   const page = await ctx.newPage();
   const consoleErrors = [];
   const failedReqs = [];
+  // 请求计数：用于断言「重渲染不重复查上游」与「不再定时轮询」。
+  // 这两条只能靠数真实请求来验证，读源码是读不出来的。
+  const reqCount = { state: 0, resource: 0 };
+  page.on('request', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (p === '/api/state') reqCount.state++;
+    else if (p === '/api/account/resource') reqCount.resource++;
+  });
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + e.message));
   page.on('requestfailed', (r) => failedReqs.push(r.url() + ' ' + (r.failure() || {}).errorText));
@@ -233,18 +241,24 @@ let browser = null;
     `面板渲染的「到期」条目数 = 带 expire_at 的条目数（${expItems.length}）`,
     `${expShown.length} vs ${expItems.length}`);
 
-  // 逐条核对「月-日」，用与面板 mmdd() 相同的口径独立算一遍
-  const wantMMDD = expItems.map((i) => {
-    const d = new Date(i.expire_at * 1000);
-    return ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
-  });
-  const missExp = wantMMDD.filter((s) => !expShown.some((t) => t.includes(s)));
-  assert(missExp.length === 0, '面板显示的到期月-日与接口 expire_at 逐条一致',
-    '缺 ' + JSON.stringify(missExp.slice(0, 3)) + ' / 面板 ' + JSON.stringify(expShown.slice(0, 3)));
+  // 逐条核对「年-月-日 时:分:秒」，用与面板 fullTime() 相同的口径独立算一遍。
+  // 断言完整时刻而不是「多少天后」—— 相对值每次刷新都在变，钉不住。
+  const fmt = (sec) => {
+    const d = new Date(sec * 1000);
+    const p = (n) => ('0' + n).slice(-2);
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  };
+  const wantText = expItems.map((i) => '到期时间：' + fmt(i.expire_at));
+  const missExp = wantText.filter((s) => !expShown.some((t) => t.includes(s)));
+  assert(missExp.length === 0, '面板显示的到期时间与接口 expire_at 逐条一致（完整时刻）',
+    '缺 ' + JSON.stringify(missExp.slice(0, 2)) + ' / 面板 ' + JSON.stringify(expShown.slice(0, 2)));
 
-  // 已过期的条目要染红。判定口径必须与面板 rel() 一致（按分钟四舍五入后 <= 0）。
-  const expiredWant = expItems.filter(
-    (i) => Math.round((i.expire_at * 1000 - Date.now()) / 60000) <= 0).length;
+  assert(!expShown.some((t) => /天后|已过期|未知/.test(t)),
+    '到期时间不做「多少天后」相对换算，也不显示「未知」', JSON.stringify(expShown.slice(0, 2)));
+
+  // 已过期的条目要染红。判定口径与面板一致：expire_at 早于当前时刻。
+  const expiredWant = expItems.filter((i) => i.expire_at * 1000 < Date.now()).length;
   const redCount = await page.$$eval('.det .pkg .px.expired', (els) => els.length);
   assert(redCount === expiredWant, `已过期的 ${expiredWant} 条染成红色`, `${redCount} vs ${expiredWant}`);
 
@@ -256,7 +270,7 @@ let browser = null;
     if (!host) return null;
     const probe = document.createElement('span');
     probe.className = 'px expired';
-    probe.textContent = '到期 01-01（已过期）';
+    probe.textContent = '到期时间：2020-01-01 00:00:00';
     host.appendChild(probe);
     const c = getComputedStyle(probe).color;
     probe.remove();
@@ -266,6 +280,26 @@ let browser = null;
   const rgb = expColor ? expColor.match(/\d+/g).map(Number) : null;
   assert(rgb && rgb[0] > 150 && rgb[0] > rgb[1] + 60 && rgb[0] > rgb[2] + 60,
     '已过期样式实测为红色（探针元素，因当前数据无已过期条目）', String(expColor));
+
+  // ── 积分明细不能被重渲染冲掉 ──
+  // 曾经的缺陷：20 秒定时轮询触发整体重渲染，把已展开的 24 条明细冲回
+  // 「展开时自动查询…」，而且**不会自动重查**（实测 24 条 → 0 条）。
+  // 这里点「刷新状态」强制走一遍 refresh()→render()，明细必须原样还在。
+  const pkgBefore = await page.$$eval('.det .pkg', (els) => els.length);
+  const resHitsBefore = reqCount.resource;
+  await page.click('#btnRefresh');
+  await page.waitForTimeout(3000);
+  const pkgAfter = await page.$$eval('.det .pkg', (els) => els.length);
+  const resHitsAfter = reqCount.resource;
+  assert(pkgAfter === pkgBefore && pkgAfter > 0,
+    `重渲染后积分明细仍保留（${pkgBefore} → ${pkgAfter} 条）`, `${pkgBefore} → ${pkgAfter}`);
+  const resbodyText = await page.$eval('.det [data-resbody]', (e) => e.textContent.trim());
+  assert(!/展开时自动查询/.test(resbodyText), '明细内容不是占位文案', resbodyText.slice(0, 40));
+
+  // 缓存生效的旁证：重渲染不该再打一次上游
+  assert(resHitsAfter === resHitsBefore,
+    `重渲染未重复查询上游权益包（${resHitsBefore} → ${resHitsAfter} 次）`,
+    `${resHitsBefore} → ${resHitsAfter}`);
   }
 
   await page.screenshot({ path: path.join(OUT, '02-workbuddy-detail.png'), fullPage: true });
@@ -491,6 +525,19 @@ let browser = null;
   const navW = await page.$eval('.sidebar', (e) => e.getBoundingClientRect().width);
   assert(navW <= 70, '窄屏下侧栏收成图标条', String(Math.round(navW)));
   await page.screenshot({ path: path.join(OUT, '07-narrow.png'), fullPage: true });
+
+  // ── 不再定时轮询 ──
+  // 「不用一直查询状态」的验收点。只确认源码里删掉了 setInterval 不够 ——
+  // 得数真实请求：空闲 25 秒（超过原来 20 秒的间隔）内不该有任何 /api/state。
+  // 这条要等 25 秒，是整个脚本里最慢的一步，但它是这个需求的唯一硬证据。
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(300);
+  const stateBefore = reqCount.state;
+  console.log('     （空闲观测 25 秒，验证无轮询…）');
+  await page.waitForTimeout(25000);
+  assert(reqCount.state === stateBefore,
+    '空闲 25 秒内没有任何 /api/state 轮询（已去掉 20 秒定时器）',
+    `观测到 ${reqCount.state - stateBefore} 次`);
 
   await browser.close();
 

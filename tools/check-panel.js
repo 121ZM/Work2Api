@@ -34,7 +34,7 @@ const htmlIds = new Set([...html.matchAll(/\bid="([A-Za-z0-9_-]+)"/g)].map((m) =
 const jsIds = new Set([...html.matchAll(/\$\('([A-Za-z0-9_-]+)'\)/g)].map((m) => m[1]));
 // 这些 id 是渲染后才出现、或由 JS 动态创建的，属于预期
 const dynamic = new Set([
-  'actImport', 'actCheckin', 'actRefresh', 'actModels', 'btnLogin', 'mq',
+  'actImport', 'actCheckin', 'actRefresh', 'actModels', 'btnLogin', 'btnRefresh', 'mq',
   'authUrl', 'openBtn', 'copyBtn', 'cancelBtn', 'mask', 'loginStatus',
   'bannerHost', // JS 启动时 createElement 后插入
 ]);
