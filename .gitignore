@@ -1,0 +1,26 @@
+# 凭证目录 —— 含 access/refresh token，绝不入库
+auths/
+*.info
+
+# 运行态：账号池冷却 / 积分快照
+data/
+
+# 登录中间状态（含 PKCE verifier / OAuth state）
+login-*.json
+
+# 本地配置（含 api_key）
+config.json
+config.local.json
+
+# 构建产物
+dist/
+*.exe
+
+# 临时文件（原子写的中间态）
+*.tmp
+
+# 本地工作数据（助手工作日志 / 临时目录），含本机路径，不入库
+.workbuddy-ai/
+
+# 日志
+*.log

@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Work2Api</title>
+<style>
+/* ═══ 设计令牌（与 WorkNiuMa 的 shadcn 主题一致）═══ */
+:root{
+  --background:240 20% 98%;
+  --foreground:240 10% 8%;
+  --card:0 0% 100%;
+  --card-foreground:240 10% 8%;
+  --popover:0 0% 100%;
+  --popover-foreground:240 10% 8%;
+  --primary:262 83% 58%;
+  --primary-foreground:0 0% 100%;
+  --secondary:240 5% 96%;
+  --secondary-foreground:240 6% 20%;
+  --muted:240 5% 96%;
+  --muted-foreground:240 4% 46%;
+  --accent:240 5% 95%;
+  --accent-foreground:240 10% 12%;
+  --destructive:0 72% 51%;
+  --destructive-foreground:0 0% 100%;
+  --border:240 6% 90%;
+  --input:240 6% 90%;
+  --ring:262 83% 58%;
+  --sidebar:240 20% 97%;
+  --sidebar-foreground:240 10% 8%;
+  --sidebar-border:240 6% 91%;
+  --sidebar-accent:240 5% 93%;
+  --sidebar-accent-foreground:240 10% 8%;
+  --radius:0.75rem;
+
+  --emerald-500:160 84% 39%;
+  --emerald-600:161 94% 30%;
+  --emerald-700:163 94% 24%;
+  --amber-500:38 92% 50%;
+  --amber-600:32 95% 44%;
+  --amber-700:26 90% 37%;
+
+  --font-sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+body.dark{
+  --background:240 10% 6%;
+  --foreground:240 5% 96%;
+  --card:240 8% 9%;
+  --card-foreground:240 5% 96%;
+  --popover:240 8% 9%;
+  --popover-foreground:240 5% 96%;
+  --primary:262 83% 66%;
+  --primary-foreground:240 10% 6%;
+  --secondary:240 5% 15%;
+  --secondary-foreground:240 5% 92%;
+  --muted:240 5% 15%;
+  --muted-foreground:240 5% 58%;
+  --accent:240 5% 17%;
+  --accent-foreground:240 5% 96%;
+  --destructive:0 62% 50%;
+  --border:240 5% 18%;
+  --input:240 5% 18%;
+  --ring:262 83% 66%;
+  --sidebar:240 10% 7%;
+  --sidebar-foreground:240 5% 92%;
+  --sidebar-border:240 5% 16%;
+  --sidebar-accent:240 5% 14%;
+  --sidebar-accent-foreground:240 5% 96%;
+  --emerald-500:160 84% 39%;
+  --emerald-700:158 64% 52%;
+  --amber-700:43 96% 56%;
+}
+
+*{box-sizing:border-box;border-color:hsl(var(--border))}
+html,body{height:100%;margin:0}
+body{
+  background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:var(--font-sans);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings:"cv02","cv03","cv04","cv11";
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:999px}
+::-webkit-scrollbar-thumb:hover{background:hsl(var(--muted-foreground) / .4)}
+code,pre,.mono{font-family:var(--font-mono)}
+
+/* ═══ 布局 ═══ */
+.app{display:flex;height:100%}
+.sidebar{
+  display:flex;width:240px;flex-shrink:0;flex-direction:column;
+  border-right:1px solid hsl(var(--sidebar-border));
+  background:hsl(var(--sidebar));color:hsl(var(--sidebar-foreground));
+}
+.main{flex:1;min-width:0;overflow-y:auto}
+.content{margin:0 auto;width:100%;max-width:768px;padding:28px 32px 80px}
+
+/* ═══ 侧栏 ═══ */
+.sb-brand{display:flex;align-items:center;gap:10px;padding:16px}
+.sb-logo{
+  display:flex;height:36px;width:36px;align-items:center;justify-content:center;
+  border-radius:calc(var(--radius) - 4px);background:hsl(var(--primary));
+  color:hsl(var(--primary-foreground));box-shadow:0 1px 2px hsl(var(--foreground) / .08);flex:none;
+}
+.sb-name{font-size:14px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-sub{font-size:11px;line-height:1.25;color:hsl(var(--muted-foreground));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-nav{display:flex;flex:1;flex-direction:column;gap:4px;padding:8px 10px;overflow-y:auto}
+.nav-item{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  border:0;background:transparent;cursor:pointer;border-radius:calc(var(--radius) - 4px);
+  padding:8px 10px;font:14px var(--font-sans);color:hsl(var(--muted-foreground));
+  transition:background-color .15s,color .15s;
+}
+.nav-item:hover{background:hsl(var(--sidebar-accent) / .6);color:hsl(var(--sidebar-accent-foreground))}
+.nav-item.on{background:hsl(var(--sidebar-accent));color:hsl(var(--sidebar-accent-foreground));
+  font-weight:500;box-shadow:0 1px 2px hsl(var(--foreground) / .06)}
+.nav-item svg{flex:none}
+.nav-item .lbl{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-foot{border-top:1px solid hsl(var(--sidebar-border));padding:10px}
+
+/* ═══ 基础组件 ═══ */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;
+  border-radius:calc(var(--radius) - 4px);font:500 14px var(--font-sans);height:36px;padding:0 16px;
+  border:1px solid transparent;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s;
+  /* <button> 不继承 color（UA 样式给的是 buttontext = 纯黑），必须显式指定。
+     少了这一行，outline/ghost 按钮在暗色主题下就是黑字黑底，看着像禁用。 */
+  color:hsl(var(--foreground));
+}
+.btn svg{width:16px;height:16px;flex:none;pointer-events:none}
+.btn:disabled{pointer-events:none;opacity:.5}
+.btn.primary{background:hsl(var(--primary));color:hsl(var(--primary-foreground));box-shadow:0 1px 2px hsl(var(--foreground) / .1)}
+.btn.primary:hover{background:hsl(var(--primary) / .9)}
+.btn.outline{border-color:hsl(var(--input));background:hsl(var(--card));box-shadow:0 1px 2px hsl(var(--foreground) / .05)}
+.btn.outline:hover{background:hsl(var(--accent));color:hsl(var(--accent-foreground))}
+.btn.ghost{background:transparent}
+.btn.ghost:hover{background:hsl(var(--accent));color:hsl(var(--accent-foreground))}
+.btn.secondary{background:hsl(var(--secondary));color:hsl(var(--secondary-foreground))}
+.btn.secondary:hover{background:hsl(var(--secondary) / .8)}
+.btn.sm{height:32px;border-radius:calc(var(--radius) - 2px);padding:0 12px;font-size:12px}
+.btn.sm svg{width:14px;height:14px}
+.btn.icon{height:32px;width:32px;padding:0;border-radius:calc(var(--radius) - 2px)}
+.btn.icon svg{width:14px;height:14px}
+.btn.danger{color:hsl(var(--muted-foreground))}
+.btn.danger:hover{background:hsl(var(--destructive) / .1);color:hsl(var(--destructive))}
+
+.badge{
+  display:inline-flex;align-items:center;gap:4px;border-radius:calc(var(--radius) - 4px);
+  border:1px solid transparent;padding:1px 8px;font-size:12px;font-weight:600;line-height:18px;
+  white-space:nowrap;flex:none;
+}
+.badge.default{background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+.badge.secondary{background:hsl(var(--secondary));color:hsl(var(--secondary-foreground))}
+.badge.muted{background:hsl(var(--muted));color:hsl(var(--muted-foreground))}
+.badge.outline{border-color:hsl(var(--border));color:hsl(var(--foreground))}
+.badge.success{background:hsl(var(--emerald-500) / .15);color:hsl(var(--emerald-700))}
+.badge.warn{background:hsl(var(--amber-500) / .16);color:hsl(var(--amber-700))}
+.badge.destructive{background:hsl(var(--destructive) / .12);color:hsl(var(--destructive))}
+.badge.tiny{padding:0 6px;font-size:10px;line-height:16px}
+
+.card{border-radius:calc(var(--radius) + 4px);border:1px solid hsl(var(--border));
+  background:hsl(var(--card));color:hsl(var(--card-foreground));box-shadow:0 1px 2px hsl(var(--foreground) / .04)}
+.card.dashed{border-style:dashed;box-shadow:none}
+.card.hl{border-color:hsl(var(--primary) / .3);background:hsl(var(--primary) / .04)}
+.card.warncard{border-color:hsl(var(--amber-500) / .4);background:hsl(var(--amber-500) / .07)}
+.cc{padding:0 20px 20px}
+.cc.pad{padding:16px 20px}
+
+.input{
+  display:flex;align-items:center;gap:8px;height:36px;border:1px solid hsl(var(--input));
+  background:hsl(var(--card));border-radius:calc(var(--radius) - 4px);padding:0 12px;
+  box-shadow:0 1px 2px hsl(var(--foreground) / .04);
+}
+.input svg{color:hsl(var(--muted-foreground));flex:none}
+.input input{flex:1;min-width:0;border:0;outline:0;background:transparent;
+  color:hsl(var(--foreground));font:13px var(--font-sans)}
+.input:focus-within{border-color:hsl(var(--ring));box-shadow:0 0 0 3px hsl(var(--ring) / .12)}
+
+.sec-h{
+  display:flex;align-items:center;gap:8px;margin:24px 0 8px;
+  font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;
+  color:hsl(var(--muted-foreground));
+}
+.sec-h:first-child{margin-top:0}
+.sec-h svg{width:14px;height:14px}
+
+.h1{font-size:20px;font-weight:600;letter-spacing:-.02em;margin:0}
+.sub{font-size:14px;color:hsl(var(--muted-foreground));margin:4px 0 0}
+.hint{font-size:12px;color:hsl(var(--muted-foreground));line-height:1.65}
+
+/* ═══ 分段控件（版本切换）═══ */
+.seg{display:inline-flex;border-radius:calc(var(--radius) - 4px);border:1px solid hsl(var(--border));
+  background:hsl(var(--muted) / .6);padding:2px}
+.seg button{
+  display:flex;align-items:center;gap:6px;border:0;background:transparent;cursor:pointer;
+  border-radius:7px;padding:6px 14px;font:14px var(--font-sans);
+  color:hsl(var(--muted-foreground));transition:background-color .15s,color .15s;
+}
+.seg button:hover{color:hsl(var(--foreground))}
+.seg button.on{background:hsl(var(--background));font-weight:500;color:hsl(var(--foreground));
+  box-shadow:0 1px 2px hsl(var(--foreground) / .07)}
+.seg .n{font-size:11px;color:hsl(var(--muted-foreground));font-variant-numeric:tabular-nums}
+.dot-ok{width:6px;height:6px;border-radius:999px;background:hsl(var(--emerald-500));flex:none}
+
+/* ═══ 统计 ═══ */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat{border-radius:calc(var(--radius) + 4px);border:1px solid hsl(var(--border));
+  background:hsl(var(--card));padding:16px 18px;box-shadow:0 1px 2px hsl(var(--foreground) / .04)}
+.stat .k{font-size:12px;color:hsl(var(--muted-foreground))}
+.stat .v{margin-top:6px;font-size:24px;font-weight:600;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;line-height:1.1}
+.stat .v small{font-size:13px;font-weight:400;color:hsl(var(--muted-foreground));margin-left:3px}
+.stat .s{margin-top:4px;font-size:11px;color:hsl(var(--muted-foreground))}
+
+/* ═══ 账号行 ═══ */
+.arow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 20px}
+.arow + .arow{border-top:1px solid hsl(var(--border) / .6)}
+.arow .grow{min-width:0;flex:1}
+.arow .nm{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-weight:500}
+.arow .meta{margin-top:4px;font-size:12px;color:hsl(var(--muted-foreground));
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.arow .meta .sep{color:hsl(var(--border))}
+.arow .acts{display:flex;flex-shrink:0;align-items:center;gap:4px}
+.mono-sm{font-family:var(--font-mono);font-size:12px}
+
+.det{border-top:1px solid hsl(var(--border) / .6);background:hsl(var(--muted) / .35);padding:16px 20px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 20px}
+.kv .k{font-size:11px;color:hsl(var(--muted-foreground))}
+.kv .v{margin-top:2px;font-size:13px;word-break:break-all}
+.kv .v.mono{font-family:var(--font-mono);font-size:12px}
+.pkg{display:flex;align-items:center;gap:12px;padding:8px 0;font-size:13px;
+  border-bottom:1px solid hsl(var(--border) / .5)}
+.pkg:last-of-type{border-bottom:0}
+.pkg .pn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pkg .pv{font-family:var(--font-mono);font-size:12px;color:hsl(var(--muted-foreground));white-space:nowrap}
+.bar{height:6px;border-radius:999px;background:hsl(var(--muted));overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;border-radius:999px;background:hsl(var(--primary))}
+.bar i.low{background:hsl(var(--amber-500))}
+.bar i.out{background:hsl(var(--destructive))}
+
+/* ═══ 模型 ═══ */
+.mlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:8px}
+.mcell{display:flex;align-items:center;gap:10px;border:1px solid hsl(var(--border));
+  background:hsl(var(--card));border-radius:calc(var(--radius) - 2px);padding:9px 12px;
+  box-shadow:0 1px 2px hsl(var(--foreground) / .03);transition:border-color .15s}
+.mcell:hover{border-color:hsl(var(--primary) / .35)}
+.mcell .mid{flex:1;min-width:0}
+.mcell .a{font-family:var(--font-mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mcell .b{font-size:11px;color:hsl(var(--muted-foreground));margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ═══ 代码块 ═══ */
+.code{border-radius:calc(var(--radius) + 4px);border:1px solid hsl(var(--border));
+  background:hsl(var(--card));overflow:hidden;box-shadow:0 1px 2px hsl(var(--foreground) / .04)}
+.code .h{display:flex;align-items:center;gap:8px;padding:10px 16px;
+  border-bottom:1px solid hsl(var(--border) / .7)}
+.code .h .t{flex:1;font-size:13px;font-weight:600}
+.code pre{margin:0;padding:16px;overflow:auto;max-height:340px;
+  background:hsl(var(--muted) / .4);font-size:12px;line-height:1.75}
+.field{display:flex;align-items:center;gap:12px;padding:10px 16px;
+  border-bottom:1px solid hsl(var(--border) / .7);font-size:13px}
+.field:last-child{border-bottom:0}
+.field .k{width:88px;flex:none;color:hsl(var(--muted-foreground));font-size:12px}
+.field .v{flex:1;min-width:0;font-family:var(--font-mono);font-size:12px;word-break:break-all}
+
+/* ═══ 空状态 / 骨架 ═══ */
+.empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:36px 20px;text-align:center}
+.empty svg{color:hsl(var(--muted-foreground) / .6)}
+.empty .t1{font-size:14px;color:hsl(var(--muted-foreground))}
+.empty .t2{font-size:12px;color:hsl(var(--muted-foreground) / .75)}
+.skel{border-radius:calc(var(--radius) + 4px);
+  background:linear-gradient(90deg,hsl(var(--muted)),hsl(var(--muted) / .4),hsl(var(--muted)));
+  background-size:200% 100%;animation:shim 1.4s linear infinite}
+@keyframes shim{to{background-position:-200% 0}}
+.spin{width:14px;height:14px;border:2px solid hsl(var(--border));
+  border-top-color:hsl(var(--primary));border-radius:50%;animation:sp .7s linear infinite;
+  display:inline-block;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ═══ toast / 弹窗 ═══ */
+.toasts{position:fixed;right:20px;bottom:20px;z-index:80;display:flex;flex-direction:column;
+  gap:8px;max-width:400px}
+.toast{display:flex;align-items:flex-start;gap:10px;border-radius:calc(var(--radius) - 2px);
+  border:1px solid hsl(var(--border));background:hsl(var(--popover));
+  color:hsl(var(--popover-foreground));padding:11px 14px;font-size:13px;
+  box-shadow:0 8px 24px -6px hsl(var(--foreground) / .18);animation:fade-in .18s ease-out}
+.toast.ok{border-color:hsl(var(--emerald-500) / .4)}
+.toast.err{border-color:hsl(var(--destructive) / .4)}
+.toast .tt{flex:1;min-width:0;white-space:pre-wrap;word-break:break-word}
+.toast .x{border:0;background:transparent;cursor:pointer;color:hsl(var(--muted-foreground));
+  font-size:16px;line-height:1;padding:0;flex:none}
+.toast .x:hover{color:hsl(var(--foreground))}
+@keyframes fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.mask{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:hsl(var(--foreground) / .45);animation:fade-in .15s ease-out}
+.modal{width:100%;max-width:580px;border-radius:calc(var(--radius) + 4px);
+  border:1px solid hsl(var(--border));background:hsl(var(--popover));overflow:hidden;
+  box-shadow:0 24px 60px -12px hsl(var(--foreground) / .3)}
+.modal .mh{padding:20px 22px 0}
+.modal .mh h2{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.modal .mh p{margin:5px 0 0;font-size:13px;color:hsl(var(--muted-foreground))}
+.modal .mb{padding:18px 22px}
+.modal .mf{display:flex;justify-content:flex-end;gap:8px;padding:14px 22px;
+  border-top:1px solid hsl(var(--border) / .7);background:hsl(var(--muted) / .4)}
+.steps{counter-reset:s;margin:0;padding:0;list-style:none}
+.steps li{counter-increment:s;position:relative;padding:0 0 16px 30px;font-size:13px;
+  color:hsl(var(--muted-foreground));line-height:1.6}
+.steps li:last-child{padding-bottom:0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:20px;height:20px;
+  border-radius:999px;background:hsl(var(--primary) / .12);color:hsl(var(--primary));
+  font:600 11px/20px var(--font-mono);text-align:center}
+.steps li b{color:hsl(var(--foreground));font-weight:600}
+.urlrow{display:flex;gap:8px;margin-top:10px}
+.urlrow input{flex:1;min-width:0;border:1px solid hsl(var(--input));border-radius:calc(var(--radius) - 4px);
+  background:hsl(var(--muted) / .5);color:hsl(var(--foreground));outline:0;
+  padding:8px 10px;font:11.5px var(--font-mono)}
+
+@media(max-width:900px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:760px){
+  .sidebar{width:60px}
+  .sb-name,.sb-sub,.nav-item .lbl,.nav-item .badge{display:none}
+  .sb-brand{justify-content:center;padding:14px 0}
+  .nav-item{justify-content:center;padding:9px 0}
+  .content{padding:20px 16px 60px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <div style="min-width:0">
+        <div class="sb-name">Work2Api</div>
+        <div class="sb-sub">WorkBuddy / TRAE SOLO</div>
+      </div>
+    </div>
+    <nav class="sb-nav" id="nav"></nav>
+    <div class="sb-foot">
+      <button class="btn ghost sm" id="themeBtn" style="width:100%;justify-content:flex-start"></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="content" id="view"></div>
+  </main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div id="modalHost"></div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+
+  // API Key 由服务端在返回本页面时注入（web/web.go 替换下面这整个表达式），
+  // 且只对回环请求注入。面板不再要求手填：Key 是随机生成的，用户本来也无从知道，
+  // 填错只会得到一个「读不到数据」的空壳。非本机访问时这里会被替换成空串。
+  var W2A_KEY = __W2A_KEY_EXPR__;
+  var THEME_STORE = 'work2api.theme';
+
+  /* ══════ 图标（lucide 同款路径）══════ */
+  var I = {
+    gauge:'<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+    bot:'<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/>' +
+        '<path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
+    rocket:'<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>' +
+           '<path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>' +
+           '<path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+    layers:'<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/>' +
+           '<path d="m6.08 9.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/>' +
+           '<path d="m6.08 14.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/>',
+    plug:'<path d="M12 22v-5"/><path d="M9 8V2M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+    refresh:'<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>',
+    down:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
+    check:'<path d="M20 6 9 17l-5-5"/>',
+    checkC:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    alert:'<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+    shield:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"/>',
+    folder:'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    chev:'<path d="m9 6 6 6-6 6"/>',
+    moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+    zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+    ext:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    key:'<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.3-8.3M16 7l3 3"/>',
+    archive:'<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>' +
+            '<path d="M10 12h4"/>',
+    info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>'
+  };
+  function ic(n, size){
+    return '<svg width="' + (size || 16) + '" height="' + (size || 16) + '" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      (I[n] || '') + '</svg>';
+  }
+
+  /* ══════ API ══════ */
+  // 服务端未注入（非本机访问）时 W2A_KEY 是空串，这里统一成「没有 Key」。
+  function getKey(){ return W2A_KEY || ''; }
+
+  function api(path, opts){
+    opts = opts || {};
+    return fetch(path, {
+      method: opts.method || 'GET',
+      headers: Object.assign({
+        'Authorization': 'Bearer ' + getKey(),
+        'Content-Type': 'application/json'
+      }, opts.headers || {}),
+      body: opts.body
+    }).then(function(r){
+      return r.text().then(function(t){
+        var j = {};
+        try{ j = t ? JSON.parse(t) : {}; }catch(e){ j = { error: String(t).slice(0, 300) }; }
+        if(!r.ok){
+          var err = new Error(j.error || ('HTTP ' + r.status));
+          err.status = r.status;
+          throw err;
+        }
+        return j;
+      });
+    });
+  }
+
+  /* ══════ toast ══════ */
+  function toast(msg, kind){
+    var el = document.createElement('div');
+    el.className = 'toast' + (kind ? ' ' + kind : '');
+    var t = document.createElement('div'); t.className = 'tt'; t.textContent = msg;
+    var x = document.createElement('button'); x.className = 'x'; x.textContent = '×';
+    x.onclick = function(){ el.remove(); };
+    el.appendChild(t); el.appendChild(x);
+    $('toasts').appendChild(el);
+    setTimeout(function(){ el.remove(); }, kind === 'err' ? 9000 : 4200);
+  }
+
+  /* ══════ 工具 ══════ */
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function num(v){
+    if(v == null) return '—';
+    return Number(v).toLocaleString('en-US');
+  }
+  function rel(sec){
+    if(!sec) return null;
+    var d = new Date(sec * 1000), m = Math.round((d.getTime() - Date.now()) / 60000);
+    var txt, variant;
+    if(m <= 0){ txt = '已过期'; variant = 'destructive'; }
+    else if(m < 60){ txt = m + ' 分钟后'; variant = 'warn'; }
+    else if(m < 1440){ txt = Math.round(m / 60) + ' 小时后'; variant = 'secondary'; }
+    else { txt = Math.round(m / 1440) + ' 天后'; variant = 'success'; }
+    return { txt: txt, variant: variant, abs: d.toLocaleString() };
+  }
+  function ago(sec){
+    if(!sec) return null;
+    var m = Math.round((Date.now() - sec * 1000) / 60000);
+    if(m < 1) return '刚刚';
+    if(m < 60) return m + ' 分钟前';
+    if(m < 1440) return Math.round(m / 60) + ' 小时前';
+    return Math.round(m / 1440) + ' 天前';
+  }
+  function copy(text, label){
+    var ok = function(){ toast((label || '内容') + '已复制', 'ok'); };
+    var fb = function(){
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); ok(); }catch(e){ toast('复制失败，请手动选中', 'err'); }
+      ta.remove();
+    };
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(text).then(ok, fb);
+    } else { fb(); }
+  }
+  function btn(cls, label, iconName, attrs){
+    return '<button class="btn ' + cls + '"' + (attrs || '') + '>' +
+      (iconName ? ic(iconName, cls.indexOf('sm') >= 0 || cls.indexOf('icon') >= 0 ? 14 : 16) : '') +
+      (label ? '<span>' + label + '</span>' : '') + '</button>';
+  }
+
+  /* ══════ 全局状态 ══════ */
+  var state = null, models = null;
+  var route = { page: 'overview', edition: {} };   // edition: {workbuddy:'cn', trae:'cn'}
+  var openDet = {};
+
+  // id 必须等于后端 provider.Kind 的字符串值（TRAE 的规范值是 "traework"，
+  // 不是 "trae"）—— /api/state 的 channels[].kind、登录接口回显的 kind
+  // 都用这个值做键，写错会导致 familyOf() 查不到、页面静默空白。
+  var FAMILIES = [
+    { id:'workbuddy', label:'WorkBuddy', icon:'bot',
+      editions:[{region:'cn', label:'国内版', channel:'workbuddy/cn'},
+                {region:'global', label:'国际版', channel:'workbuddy/global'}] },
+    { id:'traework', label:'TRAE SOLO', icon:'rocket',
+      editions:[{region:'cn', label:'国内版', channel:'traework/cn'},
+                {region:'global', label:'国际版', channel:'traework/global'}] }
+  ];
+  function familyOf(kind){ return FAMILIES.filter(function(f){ return f.id === kind; })[0]; }
+  function channelData(channel){
+    if(!state) return null;
+    var list = state.channels || [];
+    for(var i = 0; i < list.length; i++){ if(list[i].channel === channel) return list[i]; }
+    return null;
+  }
+
+  /* ══════ 渲染：侧栏 ══════ */
+  function renderNav(){
+    var counts = {};
+    (state && state.channels || []).forEach(function(ch){ counts[ch.channel] = ch.total; });
+    var items = [{ id:'overview', label:'总览', icon:'gauge' }];
+    // 渠道项一律从 FAMILIES 派生，不再硬编码渠道名 ——
+    // 之前 'trae/cn' 与真实渠道 'traework/cn' 不一致，导致 TRAE 的计数与绿点永远不显示。
+    FAMILIES.forEach(function(f){
+      var n = 0, ok = false;
+      f.editions.forEach(function(e){
+        var c = counts[e.channel] || 0;
+        n += c;
+        if(c > 0) ok = true;
+      });
+      items.push({ id: f.id, label: f.label, icon: f.icon, n: n, ok: ok });
+    });
+    items.push({ id:'models', label:'模型', icon:'layers', n: models ? models.list.length : null });
+    items.push({ id:'usage', label:'接入', icon:'plug' });
+    $('nav').innerHTML = items.map(function(it){
+      return '<button class="nav-item' + (route.page === it.id ? ' on' : '') + '" data-nav="' + it.id + '">' +
+        ic(it.icon, 16) +
+        '<span class="lbl">' + esc(it.label) + '</span>' +
+        (it.ok ? '<span class="dot-ok" title="已有账号"></span>' : '') +
+        (it.n ? '<span class="badge muted tiny">' + it.n + '</span>' : '') +
+        '</button>';
+    }).join('');
+    $('nav').querySelectorAll('[data-nav]').forEach(function(b){
+      b.onclick = function(){ go(b.getAttribute('data-nav')); };
+    });
+  }
+
+  function go(page){
+    route.page = page;
+    renderNav(); render();
+    if(page === 'models' && !models) ensureModels().then(function(){ renderNav(); render(); });
+    $('view').parentNode.scrollTop = 0;
+  }
+
+  /* ══════ 渲染：总览 ══════ */
+  function pageOverview(){
+    if(!state) return skeletons();
+    var chs = state.channels || [];
+    var total = 0, healthy = 0, credits = 0, hasCredit = false;
+    var ckDone = 0, ckTotal = 0;
+    chs.forEach(function(ch){
+      total += ch.total; healthy += ch.healthy;
+      (ch.accounts || []).forEach(function(a){
+        if(a.has_remain){ credits += a.remain; hasCredit = true; }
+        if(ch.checkin_supported){ ckTotal++; if(a.last_checkin_at) ckDone++; }
+      });
+    });
+    var bad = total - healthy;
+
+    var h = '<header><h1 class="h1">总览</h1>' +
+      '<p class="sub">同一个进程同时挂载国内版与国际版账号，按账号所属版本自动选择上游域名。</p></header>';
+
+    h += '<div class="stats" style="margin-top:20px">' +
+      stat('账号总数', total, '个', bad > 0 ? bad + ' 个不健康' : '全部可用') +
+      stat('可用积分', hasCredit ? num(credits) : '—', '', hasCredit ? '四渠道合计' : '尚未查询') +
+      stat('健康', healthy + '/' + total, '', healthy === total ? '账号池无冷却' : '有账号处于冷却') +
+      stat('今日签到', ckTotal ? ckDone + '/' + ckTotal : '—', '', ckTotal ? '仅国内版有签到体系' : '无支持签到的渠道') +
+      '</div>';
+
+    h += '<h2 class="sec-h">' + ic('zap', 14) + '快捷操作</h2>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+        btn('outline sm', '扫描本机凭证', 'down', ' id="actImport"') +
+        btn('outline sm', '立即签到', 'check', ' id="actCheckin"') +
+        btn('outline sm', '刷新全部账号', 'refresh', ' id="actRefresh"') +
+      '</div>';
+
+    h += '<h2 class="sec-h">' + ic('layers', 14) + '渠道</h2>' +
+      '<div class="card">' + chs.map(function(ch){
+        var fam = familyOf(ch.kind);
+        var ed = fam ? fam.editions.filter(function(e){ return e.channel === ch.channel; })[0] : null;
+        return '<div class="arow" style="cursor:pointer" data-goto="' + esc(ch.kind) + '">' +
+          '<div style="width:34px;height:34px;border-radius:9px;flex:none;display:flex;' +
+            'align-items:center;justify-content:center;background:hsl(var(--primary)/.1);' +
+            'color:hsl(var(--primary))">' + ic(ch.kind === 'workbuddy' ? 'bot' : 'rocket', 17) + '</div>' +
+          '<div class="grow"><div class="nm">' +
+            esc(ch.kind === 'workbuddy' ? 'WorkBuddy' : 'TRAE SOLO') + ' · ' +
+            esc(ed ? ed.label : ch.region) +
+            '<span class="badge muted tiny mono-sm">' + esc(ch.channel) + '</span></div>' +
+            '<div class="meta">' +
+              '<span>' + ch.total + ' 个账号</span><span class="sep">·</span>' +
+              '<span>健康 ' + ch.healthy + '</span><span class="sep">·</span>' +
+              '<span>' + (ch.checkin_supported ? '签到可用' : '无签到体系') + '</span>' +
+              (ch.total > 0 ? '<span class="sep">·</span><span>模型 ' + (ch.models_count || 0) +
+                (ch.models_live ? '' : '（兜底）') + '</span>' : '') +
+            '</div></div>' +
+          '<span class="badge ' + (ch.total === 0 ? 'muted' : (ch.healthy === ch.total ? 'success' : 'warn')) + '">' +
+            (ch.total === 0 ? '未接入' : (ch.healthy === ch.total ? '正常' : '有冷却')) + '</span>' +
+          '<span style="color:hsl(var(--muted-foreground))">' + ic('chev', 14) + '</span>' +
+        '</div>';
+      }).join('') + '</div>';
+
+    h += '<h2 class="sec-h">' + ic('info', 14) + '运行信息</h2><div class="card">' +
+      field('监听', state.listen) +
+      field('凭证目录', state.auth_dir) +
+      field('签到时刻', (state.checkin_times || []).join('、') || '—') +
+      '</div>';
+
+    return h;
+  }
+  function stat(k, v, unit, s){
+    return '<div class="stat"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + (unit ? '<small>' + esc(unit) + '</small>' : '') + '</div>' +
+      '<div class="s">' + esc(s) + '</div></div>';
+  }
+  function field(k, v){
+    return '<div class="field"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + '</span></div>';
+  }
+
+  /* ══════ 渲染：渠道页 ══════ */
+  function pageFamily(fam){
+    if(!state) return skeletons();
+    var cur = route.edition[fam.id] || 'cn';
+    var ed = fam.editions.filter(function(e){ return e.region === cur; })[0];
+    var ch = channelData(ed.channel);
+
+    var h = '<header style="display:flex;flex-wrap:wrap;align-items:flex-start;' +
+      'justify-content:space-between;gap:16px">' +
+      '<div style="min-width:0"><div style="display:flex;align-items:center;gap:8px">' +
+        '<h1 class="h1">' + esc(fam.label) + '</h1>' +
+        (ch && ch.total > 0 ? '<span class="badge success">已接入</span>'
+                            : '<span class="badge muted">未接入</span>') +
+      '</div><p class="sub">' +
+        (fam.id === 'workbuddy'
+          ? '腾讯 CodeBuddy 的两种发行版，账号库与签到体系各自独立。'
+          : 'TRAE SOLO 的两种发行版。凭证为加密存储，只能通过网页授权登录。') +
+      '</p></div>' +
+      '<button class="btn primary sm" id="btnLogin">' + ic('plus', 14) + '登录新账号</button>' +
+      '</header>';
+
+    // 版本切换
+    h += '<div style="margin-top:20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">' +
+      '<div class="seg">' + fam.editions.map(function(e){
+        var c = channelData(e.channel);
+        return '<button data-ed="' + esc(e.region) + '"' + (e.region === cur ? ' class="on"' : '') + '>' +
+          esc(e.label) +
+          (c && c.total > 0 ? '<span class="dot-ok"></span>' : '') +
+          (c && c.total > 0 ? '<span class="n">' + c.total + '</span>' : '') +
+          '</button>';
+      }).join('') + '</div>' +
+      '<p class="hint" style="margin:0">两个版本的账号互不相通，切换只影响当前版本</p>' +
+      '</div>';
+
+    // 自宿主 / 无签到提示
+    if(ch && !ch.checkin_supported){
+      h += '<div class="card warncard" style="margin-top:16px"><div class="cc pad" style="display:flex;' +
+        'gap:10px;align-items:flex-start;font-size:12px;line-height:1.65;color:hsl(var(--amber-700))">' +
+        '<span style="flex:none;margin-top:1px">' + ic('info', 15) + '</span>' +
+        '<div><b>' + esc(ed.label) + '没有签到体系。</b>' +
+        '该版本的账号会被调度器整池跳过，不计失败、不进入冷却，也不会查询签到积分。</div></div></div>';
+    }
+
+    h += '<h2 class="sec-h">' + ic('archive', 14) + '已接入账号' +
+      '<span class="badge muted tiny">' + (ch ? ch.total : 0) + '</span></h2>';
+
+    if(!ch || !ch.accounts || !ch.accounts.length){
+      h += '<div class="card dashed"><div class="empty">' + ic('archive', 24) +
+        '<div class="t1">这个版本还没有账号</div>' +
+        '<div class="t2">点右上角「登录新账号」，或用「总览 → 扫描本机凭证」导入已登录的客户端账号</div>' +
+        '</div></div>';
+    } else {
+      h += '<div class="card">' + ch.accounts.map(function(a){
+        return accountRow(ch, a);
+      }).join('') + '</div>';
+    }
+
+    return h;
+  }
+
+  function bindFamily(fam){
+    var cur = route.edition[fam.id] || 'cn';
+    var lg = $('btnLogin');
+    if(lg) lg.onclick = function(){ startLogin(fam.id, cur, this); };
+    $('view').querySelectorAll('[data-ed]').forEach(function(b){
+      b.onclick = function(){ route.edition[fam.id] = b.getAttribute('data-ed'); render(); };
+    });
+    bindAccountActions();
+  }
+
+  function accountRow(ch, a){
+    var key = ch.channel + '|' + a.uid;
+    var isOpen = !!openDet[key];
+    var exp = rel(a.expires_at);
+
+    var badges = '';
+    if(a.disabled) badges += '<span class="badge destructive">已停用</span>';
+    else if(a.cooldown_until && a.cooldown_until > Math.floor(Date.now() / 1000))
+      badges += '<span class="badge warn">冷却 ' +
+        Math.ceil((a.cooldown_until - Math.floor(Date.now() / 1000)) / 60) + ' 分钟</span>';
+    else if(a.err_count > 0) badges += '<span class="badge warn">错误 ' + a.err_count + '</span>';
+    else badges += '<span class="badge success">正常</span>';
+    if(exp) badges += '<span class="badge ' + exp.variant + '" title="' + esc(exp.abs) + '">' +
+      esc(exp.txt) + '</span>';
+    else badges += '<span class="badge muted">无过期时间</span>';
+
+    var h = '<div class="arow" data-key="' + esc(key) + '">' +
+      '<div class="grow"><div class="nm">' + esc(a.nickname || '未命名') + badges + '</div>' +
+        '<div class="meta">' +
+          '<span class="mono-sm">' + esc(a.uid) + '</span><span class="sep">·</span>' +
+          '<span>剩余积分 ' +
+            (a.has_remain ? '<b class="mono-sm">' + num(a.remain) + '</b>'
+                          : '<span style="color:hsl(var(--muted-foreground))">未知</span>') +
+          '</span>' +
+          (ch.checkin_supported ? '<span class="sep">·</span><span>签到 ' +
+            (a.last_checkin_at ? esc(a.last_checkin_msg || ago(a.last_checkin_at))
+                               : '本次运行尚未执行') + '</span>' : '') +
+        '</div>' +
+        (a.disabled && a.disabled_reason ? '<div class="meta">' + esc(a.disabled_reason) + '</div>' : '') +
+        (a.cooldown_reason ? '<div class="meta">' + esc(a.cooldown_reason) + '</div>' : '') +
+        (a.last_err ? '<div class="meta">' + esc(a.last_err) + '</div>' : '') +
+      '</div>' +
+      '<div class="acts">' +
+        btn('outline sm', '详情', 'chev', ' data-det') +
+        btn('outline sm', '刷新', 'refresh', ' data-ref') +
+        (ch.checkin_supported ? btn('outline sm', '签到', 'check', ' data-ck') : '') +
+        btn('ghost icon', '', 'copy', ' data-cp title="复制账号 ID"') +
+      '</div>' +
+      (isOpen ? detailHTML(ch, a) : '') +
+      '</div>';
+    return h;
+  }
+
+  function detailHTML(ch, a){
+    var exp = rel(a.expires_at);
+    var cells = [
+      ['账号 ID', a.uid, true],
+      ['渠道', ch.channel, true],
+      ['昵称', a.nickname || '—', false],
+      ['Token 过期', exp ? exp.abs + '（' + exp.txt + '）' : '无过期时间', false],
+      ['最近签到', ch.checkin_supported
+        ? (a.last_checkin_at ? ago(a.last_checkin_at) + '：' + (a.last_checkin_msg || '已执行')
+                             : '本次运行尚未执行')
+        : '该版本无签到体系', false]
+    ];
+    return '<div class="det" style="flex-basis:100%">' +
+      '<div class="kv">' + cells.map(function(c){
+        return '<div><div class="k">' + esc(c[0]) + '</div>' +
+          '<div class="v' + (c[2] ? ' mono' : '') + '">' + esc(c[1]) + '</div></div>';
+      }).join('') + '</div>' +
+      '<div style="margin-top:16px;display:flex;align-items:center;gap:8px">' +
+        '<div style="flex:1;font-size:12px;color:hsl(var(--muted-foreground))">积分明细</div>' +
+        btn('ghost sm', '重新查询', '', ' data-res') +
+      '</div>' +
+      '<div data-resbody style="margin-top:4px;font-size:12px;color:hsl(var(--muted-foreground))">' +
+        '展开时自动查询…</div>' +
+      '</div>';
+  }
+
+  function bindAccountActions(){
+    $('view').querySelectorAll('[data-key]').forEach(function(row){
+      var key = row.getAttribute('data-key');
+      var parts = key.split('|');
+      var ch = channelData(parts[0]);
+      var acct = null;
+      if(ch){ (ch.accounts || []).forEach(function(a){ if(a.uid === parts[1]) acct = a; }); }
+      if(!acct) return;
+
+      var d = row.querySelector('[data-det]');
+      if(d) d.onclick = function(){
+        openDet[key] = !openDet[key];
+        render();
+        if(openDet[key]) loadResource(ch, acct, key);
+      };
+      var rf = row.querySelector('[data-ref]');
+      if(rf) rf.onclick = function(){ refreshAccount(ch, acct, rf); };
+      var ck = row.querySelector('[data-ck]');
+      if(ck) ck.onclick = function(){ checkinChannel(ch, ck); };
+      var cp = row.querySelector('[data-cp]');
+      if(cp) cp.onclick = function(){ copy(acct.uid, '账号 ID'); };
+      var rs = row.querySelector('[data-res]');
+      if(rs) rs.onclick = function(){ loadResource(ch, acct, key, true); };
+    });
+  }
+
+  function loadResource(ch, a, key, force){
+    var row = $('view').querySelector('[data-key="' + key + '"]');
+    if(!row) return;
+    var body = row.querySelector('[data-resbody]');
+    if(!body) return;
+    if(body.dataset.loaded && !force) return;
+    body.dataset.loaded = '1';
+    body.innerHTML = '<span class="spin"></span> 查询中…';
+    api('/api/account/resource', { method:'POST', body: JSON.stringify({ channel: ch.channel, uid: a.uid }) })
+      .then(function(j){
+        var items = j.items || [];
+        if(!items.length){
+          body.innerHTML = '上游未返回权益包明细';
+          return;
+        }
+        body.innerHTML =
+          '<div style="font-size:13px;color:hsl(var(--foreground));margin-bottom:8px">合计剩余 ' +
+            '<b class="mono-sm">' + num(j.total) + '</b></div>' +
+          items.map(function(it){
+            // 条宽 = 本包自己的 剩余/总量，和右侧文案同一口径。
+            // 曾经按「占最大包的比值」画条、却把低比例染成琥珀色，
+            // 结果 50/50 这种满额包被画成 1% 的告警条 —— 属于误导。
+            var total = it.total || 0, remain = it.remain || 0;
+            var pct = total > 0 ? Math.max(Math.round((remain / total) * 100), 0) : 0;
+            var cls = remain <= 0 ? 'out' : (pct < 20 ? 'low' : '');
+            return '<div class="pkg"><span class="pn">' + esc(it.name || '权益包') + '</span>' +
+              '<span class="pv">' + num(it.remain) + ' / ' + num(it.total) + '</span></div>' +
+              '<div class="bar"><i class="' + cls + '" style="width:' + pct + '%"></i></div>';
+          }).join('');
+        a.remain = j.total; a.has_remain = true;
+      })
+      .catch(function(e){
+        body.dataset.loaded = '';
+        body.innerHTML = '<span style="color:hsl(var(--destructive))">' + esc(e.message) + '</span>';
+      });
+  }
+
+  /* ══════ 渲染：模型 ══════ */
+  function pageModels(){
+    if(!models){
+      return '<header><h1 class="h1">模型</h1>' +
+        '<p class="sub">正在从上游拉取模型列表…</p></header>' + skeletons();
+    }
+    var q = (models.query || '').toLowerCase();
+    var list = models.list.filter(function(m){ return !q || m.id.toLowerCase().indexOf(q) >= 0; });
+    var groups = {};
+    list.forEach(function(m){
+      var g = m.id.split('/')[0];
+      (groups[g] = groups[g] || []).push(m);
+    });
+    var names = Object.keys(groups).sort();
+
+    var h = '<header style="display:flex;flex-wrap:wrap;align-items:flex-start;' +
+      'justify-content:space-between;gap:16px"><div style="min-width:0">' +
+      '<h1 class="h1">模型</h1>' +
+      '<p class="sub">ID 可直接回传给 <span class="mono-sm">/v1/chat/completions</span>。' +
+      '带版本的前缀锁定单一版本，不带版本的走两区自动选号。</p></div>' +
+      '<button class="btn outline sm" id="actModels">' + ic('refresh', 14) + '重新拉取</button>' +
+      '</header>' +
+      '<div style="margin-top:20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">' +
+        '<div class="input" style="flex:1;min-width:220px;max-width:340px">' +
+          ic('search', 14) +
+          '<input id="mq" placeholder="搜索模型…" value="' + esc(models.query || '') + '">' +
+        '</div>' +
+        '<span class="hint">' + list.length + ' / ' + models.list.length + ' 个</span>' +
+      '</div>';
+
+    // 模型表来源必须如实展示：兜底表可能多也可能少，用户有权知道看到的是不是实时结果。
+    var srcRows = (state && state.channels || []).filter(function(c){ return c.total > 0; });
+    if(srcRows.length){
+      h += '<h2 class="sec-h">' + ic('info', 14) + '来源</h2><div class="card"><div class="cc pad" ' +
+        'style="display:flex;flex-direction:column;gap:8px">' +
+        srcRows.map(function(c){
+          var live = !!c.models_live;
+          return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12.5px">' +
+            '<span class="badge ' + (live ? 'success' : 'warn') + '">' +
+              (live ? '上游实时' : '静态兜底') + '</span>' +
+            '<span class="mono-sm">' + esc(c.channel) + '</span>' +
+            '<span style="color:hsl(var(--muted-foreground))">' + (c.models_count || 0) + ' 个模型' +
+              (c.models_at ? ' · ' + ago(c.models_at) : '') + '</span>' +
+            (c.models_err ? '<span style="color:hsl(var(--amber-700))">' + esc(c.models_err) +
+              '</span>' : '') +
+            '</div>';
+        }).join('') + '</div></div>';
+    }
+
+    if(!list.length){
+      h += '<div class="card dashed" style="margin-top:16px"><div class="empty">' + ic('search', 24) +
+        '<div class="t1">没有匹配的模型</div><div class="t2">换个关键词试试</div></div></div>';
+    } else {
+      names.forEach(function(g){
+        var fam = g.indexOf('trae') === 0 ? 'rocket' : 'bot';
+        h += '<h2 class="sec-h">' + ic(fam, 14) + esc(g) +
+          '<span class="badge muted tiny">' + groups[g].length + '</span>' +
+          '<span style="flex:1"></span>' +
+          '<button class="btn ghost sm" data-call="' + esc(g) + '">复制全部</button></h2>' +
+          '<div class="mlist">' + groups[g].map(function(m){
+            return '<div class="mcell"><div class="mid">' +
+              '<div class="a" title="' + esc(m.id) + '">' + esc(m.id) + '</div>' +
+              (m.name ? '<div class="b">' + esc(m.name) + '</div>' : '') +
+              '</div><button class="btn ghost icon" data-cm="' + esc(m.id) + '" title="复制">' +
+              ic('copy', 14) + '</button></div>';
+          }).join('') + '</div>';
+      });
+    }
+    return h;
+  }
+  function bindModels(){
+    var mb = $('actModels');
+    if(mb) mb.onclick = function(){ refreshModels(mb); };
+    var input = $('mq');
+    if(input){
+      input.oninput = function(){
+        var v = input.value, pos = v.length;
+        models.query = v;
+        render();
+        var ni = $('mq');
+        if(ni){ ni.focus(); ni.setSelectionRange(pos, pos); }
+      };
+    }
+    $('view').querySelectorAll('[data-cm]').forEach(function(b){
+      b.onclick = function(){ copy(b.getAttribute('data-cm'), '模型 ID'); };
+    });
+    $('view').querySelectorAll('[data-call]').forEach(function(b){
+      b.onclick = function(){
+        var g = b.getAttribute('data-call');
+        copy((models.list.filter(function(m){ return m.id.split('/')[0] === g; }))
+          .map(function(m){ return m.id; }).join('\n'), '模型 ID 列表');
+      };
+    });
+  }
+
+  // 手动重拉上游模型表（面板上的「重新拉取」）。
+  function refreshModels(b){
+    b.disabled = true;
+    api('/api/models/refresh', { method:'POST', body:'{}' })
+      .then(function(){
+        models = null;           // 先清空，避免旧列表被当成新结果
+        return refresh();        // 拿回新的 state（含 models_live / models_count）
+      })
+      .then(function(){ return ensureModels(); })
+      .then(function(){ renderNav(); render(); toast('模型列表已更新', 'ok'); })
+      .catch(function(e){ toast('拉取模型失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; });
+  }
+
+  /* ══════ 渲染：接入 ══════ */
+  function pageUsage(){
+    var base = location.origin, key = getKey() || '<你的 API Key>';
+    var py = 'from openai import OpenAI\n\nclient = OpenAI(\n' +
+      '    base_url="' + base + '/v1",\n    api_key="' + key + '",\n)\n\n' +
+      'resp = client.chat.completions.create(\n' +
+      '    model="workbuddy-cn/glm-5.2",   # 或 workbuddy-global/… / trae-cn/…\n' +
+      '    messages=[{"role": "user", "content": "你好"}],\n)\n' +
+      'print(resp.choices[0].message.content)\n';
+    var curl = 'curl ' + base + '/v1/chat/completions \\\n' +
+      '  -H "Authorization: Bearer ' + key + '" \\\n' +
+      '  -H "Content-Type: application/json" \\\n' +
+      '  -d \'{"model":"workbuddy-cn/glm-5.2","messages":[{"role":"user","content":"你好"}],"stream":true}\'\n';
+    var node = 'import OpenAI from "openai";\n\nconst client = new OpenAI({\n' +
+      '  baseURL: "' + base + '/v1",\n  apiKey: "' + key + '",\n});\n\n' +
+      'const stream = await client.chat.completions.create({\n' +
+      '  model: "workbuddy/glm-5.2",   // 不带版本 → 两区自动选号，国内优先\n' +
+      '  messages: [{ role: "user", content: "你好" }],\n  stream: true,\n});\n' +
+      'for await (const c of stream) process.stdout.write(c.choices[0]?.delta?.content ?? "");\n';
+
+    var rows = [
+      ['workbuddy-cn/&lt;model&gt;', '仅国内版 WorkBuddy 账号'],
+      ['workbuddy-global/&lt;model&gt;', '仅国际版 WorkBuddy 账号'],
+      ['trae-cn/&lt;model&gt;', '仅国内版 TRAE 账号'],
+      ['trae-global/&lt;model&gt;', '仅国际版 TRAE 账号'],
+      ['workbuddy/&lt;model&gt;', '两区自动选号（国内优先）'],
+      ['trae/&lt;model&gt;', '两区自动选号（国内优先）']
+    ];
+
+    return '<header><h1 class="h1">接入</h1>' +
+      '<p class="sub">任何支持自定义 base URL 的 OpenAI 客户端都可以直接接入。</p></header>' +
+      '<h2 class="sec-h">' + ic('key', 14) + '连接信息</h2>' +
+      '<div class="card">' +
+        '<div class="field"><span class="k">Base URL</span><span class="v">' + esc(base) + '/v1</span>' +
+          btn('outline sm', '复制', 'copy', ' data-c="' + esc(base) + '/v1"') + '</div>' +
+        '<div class="field"><span class="k">API Key</span><span class="v">' +
+          esc(getKey() || '（未设置）') + '</span>' +
+          btn('outline sm', '复制', 'copy', ' data-c="' + esc(getKey()) + '"') + '</div>' +
+        '<div class="field"><span class="k">模型列表</span><span class="v">GET /v1/models</span>' +
+          btn('outline sm', '查看', 'layers', ' data-jump="models"') + '</div>' +
+        '<div class="field"><span class="k">健康检查</span><span class="v">GET /healthz（免鉴权）</span></div>' +
+      '</div>' +
+      '<h2 class="sec-h">' + ic('plug', 14) + '模型前缀</h2><div class="card">' +
+        rows.map(function(r){
+          return '<div class="field"><span class="v" style="flex:none;width:250px">' + r[0] + '</span>' +
+            '<span style="flex:1;color:hsl(var(--muted-foreground));font-size:12.5px;' +
+            'font-family:var(--font-sans)">' + r[1] + '</span></div>';
+        }).join('') + '</div>' +
+      codeBlock('Python（openai SDK）', py) +
+      codeBlock('curl', curl) +
+      codeBlock('Node.js（openai SDK）', node) +
+      '<div class="card" style="margin-top:16px"><div class="cc pad" style="display:flex;gap:10px;' +
+        'align-items:flex-start;font-size:12px;line-height:1.65;color:hsl(var(--muted-foreground))">' +
+        '<span style="flex:none;margin-top:1px">' + ic('shield', 15) + '</span>' +
+        '<div>凭证只从本机客户端读取或由网页授权写入，<b>绝不回写官方客户端</b>；' +
+        '导入是单向的。服务默认只监听 <span class="mono-sm">127.0.0.1</span>，' +
+        '若要暴露到局域网请同时修改 API Key。</div></div></div>';
+  }
+  function codeBlock(title, code){
+    return '<div class="code" style="margin-top:12px">' +
+      '<div class="h"><span class="t">' + esc(title) + '</span>' +
+      btn('outline sm', '复制', 'copy', ' data-c="' + esc(code) + '"') + '</div>' +
+      '<pre>' + esc(code) + '</pre></div>';
+  }
+  function bindUsage(){
+    $('view').querySelectorAll('[data-c]').forEach(function(b){
+      b.onclick = function(){ copy(b.getAttribute('data-c'), '内容'); };
+    });
+    $('view').querySelectorAll('[data-jump]').forEach(function(b){
+      b.onclick = function(){ go(b.getAttribute('data-jump')); };
+    });
+  }
+
+  function skeletons(){
+    return '<div class="skel" style="height:32px;width:180px;margin-bottom:12px"></div>' +
+      '<div class="skel" style="height:16px;width:340px;margin-bottom:24px"></div>' +
+      '<div class="skel" style="height:92px;margin-bottom:12px"></div>' +
+      '<div class="skel" style="height:92px;margin-bottom:12px"></div>';
+  }
+
+  /* ══════ 路由 ══════ */
+  function render(){
+    var v = $('view');
+    var fam = familyOf(route.page);
+    var html;
+    if(route.page === 'overview') html = pageOverview();
+    else if(route.page === 'models') html = pageModels();
+    else if(route.page === 'usage') html = pageUsage();
+    else if(fam) html = pageFamily(fam);
+
+    // 页面函数一律「返回字符串」，由这里统一落盘。
+    // 少了这条校验，某个页面函数漏写 return 时 innerHTML 会被赋成字面量 "undefined"，
+    // 页面看着「空白」但控制台一声不吭 —— 正是这次踩到的坑。
+    if(typeof html !== 'string'){
+      console.error('render: 页面函数未返回 HTML 字符串', route.page, html);
+      return;
+    }
+    v.innerHTML = html;
+
+    if(route.page === 'overview') bindOverview();
+    else if(route.page === 'models') bindModels();
+    else if(route.page === 'usage') bindUsage();
+    else if(fam) bindFamily(fam);
+
+    renderBanner();
+  }
+  function bindOverview(){
+    var i = $('actImport'); if(i) i.onclick = function(){ importLocal(i); };
+    var c = $('actCheckin'); if(c) c.onclick = function(){ checkinAll(c); };
+    var r = $('actRefresh'); if(r) r.onclick = function(){ refreshAll(r); };
+    $('view').querySelectorAll('[data-goto]').forEach(function(el){
+      el.onclick = function(){ go(el.getAttribute('data-goto')); };
+    });
+  }
+
+  function renderBanner(){
+    var host = $('bannerHost');
+    if(!host) return;
+    if(getKey()){ host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="card warncard" style="margin-bottom:20px"><div class="cc pad" ' +
+      'style="display:flex;gap:10px;align-items:flex-start;font-size:12.5px;line-height:1.65;' +
+      'color:hsl(var(--amber-700))">' + '<span style="flex:none;margin-top:1px">' + ic('alert', 15) + '</span>' +
+      '<div><b>面板没有拿到 API Key。</b>Key 由服务端在返回本页面时注入，' +
+      '且<b>只对来自本机的请求</b>注入 —— 如果你是通过局域网或公网地址打开的，' +
+      '请改从服务器本机访问 <span class="mono-sm">http://127.0.0.1:7865</span>。</div></div></div>';
+  }
+
+  /* ══════ 数据 ══════ */
+  function ensureModels(){
+    if(models) return Promise.resolve();
+    models = { list: [], query: '' };
+    return api('/v1/models').then(function(j){
+      models.list = (j.data || []).map(function(m){ return { id: m.id, name: m.name || '' }; });
+    }).catch(function(e){
+      models = null;
+      toast('模型列表拉取失败：' + e.message, 'err');
+    });
+  }
+
+  function refresh(){
+    return api('/api/state').then(function(j){
+      state = j;
+      renderNav(); render();
+    }).catch(function(e){
+      if(e.status === 401){
+        state = null;
+        renderNav();
+        $('view').innerHTML = '<header><h1 class="h1">总览</h1></header>' +
+          '<div class="card warncard" style="margin-top:20px"><div class="cc pad" style="display:flex;' +
+          'gap:10px;align-items:flex-start;font-size:13px;color:hsl(var(--amber-700))">' +
+          '<span style="flex:none;margin-top:1px">' + ic('alert', 16) + '</span>' +
+          '<div><b>API Key 校验失败。</b><br>页面注入的 Key 与服务端当前配置不一致，' +
+          '通常是刚改过 <code>config.json</code> 的 <code>api_key</code> 而没重启服务。' +
+          '重启后刷新本页即可。</div></div></div>';
+        renderBanner();
+      } else {
+        toast('读取状态失败：' + e.message, 'err');
+      }
+    });
+  }
+
+  /* ══════ 操作 ══════ */
+  function refreshAccount(ch, a, b){
+    b.disabled = true;
+    api('/api/account/refresh', { method:'POST', body: JSON.stringify({ channel: ch.channel, uid: a.uid }) })
+      .then(function(j){
+        var r = (j.results || [])[0];
+        if(r && r.ok) toast('已刷新' + (r.remain === undefined ? '' : '，剩余积分 ' + num(r.remain)), 'ok');
+        else toast('刷新失败：' + ((r && r.msg) || '无结果'), 'err');
+        return refresh();
+      })
+      .catch(function(e){ toast('刷新失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; });
+  }
+
+  function refreshAll(b){
+    b.disabled = true;
+    api('/api/account/refresh', { method:'POST', body: '{}' })
+      .then(function(j){
+        var rs = j.results || [];
+        var okN = rs.filter(function(r){ return r.ok; }).length;
+        var bad = rs.filter(function(r){ return !r.ok; });
+        toast('已刷新 ' + okN + ' 个账号' + (bad.length ? '，' + bad.length + ' 个失败' : ''), bad.length ? 'err' : 'ok');
+        bad.forEach(function(r){ toast((r.channel || '') + ' ' + (r.uid || '').slice(0, 8) + '：' + (r.msg || '失败'), 'err'); });
+        return refresh();
+      })
+      .catch(function(e){ toast('刷新失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; });
+  }
+
+  function checkinChannel(ch, b){
+    b.disabled = true;
+    api('/api/account/checkin', { method:'POST', body: JSON.stringify({ channel: ch.channel }) })
+      .then(function(j){
+        var rs = (j.results || []).filter(function(r){ return r.channel === ch.channel; });
+        if(!rs.length){ toast('该渠道没有可签到的账号', 'err'); return; }
+        rs.forEach(function(r){
+          var who = (r.uid || '').slice(0, 8);
+          if(r.skipped) toast(who + '：跳过（' + (r.msg || '无签到体系') + '）');
+          else if(r.ok) toast(who + '：' + (r.msg || '签到成功'), 'ok');
+          else toast(who + '：' + (r.msg || '签到失败'), 'err');
+        });
+        return refresh();
+      })
+      .catch(function(e){ toast('签到请求失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; });
+  }
+
+  function checkinAll(b){
+    b.disabled = true;
+    api('/api/account/checkin', { method:'POST', body: '{}' })
+      .then(function(j){
+        var rs = j.results || [];
+        if(!rs.length){ toast('没有可签到的账号', 'err'); return; }
+        rs.forEach(function(r){
+          var who = (r.channel || '') + ' ' + (r.uid || '').slice(0, 8);
+          if(r.skipped) toast(who + '：跳过（' + (r.msg || '无签到体系') + '）');
+          else if(r.ok) toast(who + '：' + (r.msg || '签到成功'), 'ok');
+          else toast(who + '：' + (r.msg || '签到失败'), 'err');
+        });
+        return refresh();
+      })
+      .catch(function(e){ toast('签到请求失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; });
+  }
+
+  function importLocal(b){
+    b.disabled = true;
+    var old = b.innerHTML;
+    b.innerHTML = '<span class="spin"></span> 扫描中…';
+    api('/api/import/local', { method:'POST', body: '{}' })
+      .then(function(j){
+        var rs = j.results || [];
+        if(!rs.length){
+          toast('本机没有发现可导入的凭证。\nWorkBuddy 需先用官方客户端登录过一次；' +
+            'TRAE 的凭证是加密存储，只能走「登录新账号」。', 'err');
+        } else {
+          rs.filter(function(r){ return r.action !== 'rejected'; }).forEach(function(r){
+            toast('已' + (r.action === 'created' ? '导入' : '更新') + '：' +
+              (r.nickname || r.uid) + '（' + r.region + '）', 'ok');
+          });
+          rs.filter(function(r){ return r.action === 'rejected'; }).forEach(function(r){
+            toast('跳过 ' + (r.uid || '') + '：' + (r.reason || '被拒绝'), 'err');
+          });
+        }
+        (j.notes || []).forEach(function(n){ toast(n); });
+        models = null;
+        return refresh();
+      })
+      .catch(function(e){ toast('导入失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; b.innerHTML = old; });
+  }
+
+  /* ══════ 登录 ══════ */
+  var pollTimer = null;
+  function closeModal(){
+    if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+    $('modalHost').innerHTML = '';
+    document.removeEventListener('keydown', onEsc);
+  }
+  function onEsc(e){ if(e.key === 'Escape') closeModal(); }
+
+  function startLogin(kind, region, b){
+    b.disabled = true;
+    api('/api/login/start', { method:'POST', body: JSON.stringify({ kind: kind, region: region }) })
+      .then(showLoginModal)
+      .catch(function(e){ toast('发起登录失败：' + e.message, 'err'); })
+      .finally(function(){ b.disabled = false; });
+  }
+
+  function showLoginModal(j){
+    var fam = familyOf(j.kind);
+    var ed = fam ? fam.editions.filter(function(e){ return e.region === j.region; })[0] : null;
+    var label = (fam ? fam.label : j.kind) + ' · ' + (ed ? ed.label : j.region);
+
+    $('modalHost').innerHTML =
+      '<div class="mask" id="mask"><div class="modal">' +
+        '<div class="mh"><h2>登录 ' + esc(label) + '</h2>' +
+          '<p>在浏览器完成授权，本页会自动检测并写入凭证。</p></div>' +
+        '<div class="mb"><ol class="steps">' +
+          '<li><b>打开下面的链接</b>，会进入官方登录页' +
+            '<div class="urlrow"><input id="authUrl" readonly value="' + esc(j.auth_url) + '">' +
+            '<button class="btn primary sm" id="openBtn">' + ic('ext', 14) + '打开</button>' +
+            '<button class="btn outline sm" id="copyBtn">' + ic('copy', 14) + '复制</button></div></li>' +
+          '<li><b>用要接入的账号完成登录</b>。两个版本的账号分别存放，' +
+            '登录哪个版本就存到哪个版本。</li>' +
+          '<li><b>回到本页等待</b>，检测到授权后自动写入并刷新列表。</li>' +
+        '</ol>' +
+        '<div id="loginStatus" style="margin-top:16px;font-size:13px;color:hsl(var(--muted-foreground))">' +
+          '<span class="spin"></span> 等待授权完成…</div>' +
+        '<p class="hint" style="margin-top:14px">凭证只写入本地 <span class="mono-sm">auths/</span> 目录，' +
+          '不会回写官方客户端。同一个渠道同时只允许一个在途登录。</p>' +
+        '</div>' +
+        '<div class="mf"><button class="btn ghost" id="cancelBtn">取消登录</button></div>' +
+      '</div></div>';
+
+    $('openBtn').onclick = function(){ window.open(j.auth_url, '_blank', 'noopener'); };
+    $('copyBtn').onclick = function(){ copy(j.auth_url, '授权链接'); };
+    $('mask').onclick = function(e){ if(e.target === $('mask')) closeModal(); };
+    $('cancelBtn').onclick = function(){
+      api('/api/login/cancel', { method:'POST', body: JSON.stringify({ kind: j.kind, region: j.region }) })
+        .catch(function(){});
+      closeModal();
+    };
+    document.addEventListener('keydown', onEsc);
+
+    var tries = 0;
+    pollTimer = setInterval(function(){
+      if(++tries > 150){
+        closeModal();
+        toast('登录等待超时（5 分钟），请重新发起', 'err');
+        return;
+      }
+      api('/api/login/poll?kind=' + encodeURIComponent(j.kind) + '&region=' + encodeURIComponent(j.region))
+        .then(function(r){
+          if(r.pending) return;
+          closeModal();
+          toast('登录成功：' + (r.nickname || r.uid) + '（' + r.region + '）' +
+            (r.has_remain ? '，可用积分 ' + num(r.remain) : ''), 'ok');
+          models = null;
+          if(route.page === 'overview') route.page = j.kind;
+          refresh();
+        })
+        .catch(function(e){
+          closeModal();
+          toast('登录失败：' + e.message, 'err');
+        });
+    }, 2000);
+  }
+
+  /* ══════ 主题 ══════ */
+  function applyTheme(t){
+    document.body.classList.toggle('dark', t === 'dark');
+    $('themeBtn').innerHTML = ic(t === 'dark' ? 'sun' : 'moon', 15) +
+      '<span>' + (t === 'dark' ? '浅色主题' : '深色主题') + '</span>';
+  }
+  var theme = 'light';
+  try{ theme = localStorage.getItem(THEME_STORE) || 'light'; }catch(e){}
+  applyTheme(theme);
+  $('themeBtn').onclick = function(){
+    theme = theme === 'dark' ? 'light' : 'dark';
+    try{ localStorage.setItem(THEME_STORE, theme); }catch(e){}
+    applyTheme(theme);
+  };
+
+  /* ══════ 启动 ══════ */
+  var banner = document.createElement('div');
+  banner.id = 'bannerHost';
+  $('view').parentNode.insertBefore(banner, $('view'));
+
+  renderNav();
+  $('view').innerHTML = skeletons();
+  refresh();
+  setInterval(function(){
+    if(!$('modalHost').innerHTML && document.visibilityState === 'visible') refresh();
+  }, 20000);
+})();
+</script>
+</body>
+</html>

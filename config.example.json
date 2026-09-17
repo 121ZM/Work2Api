@@ -1,0 +1,26 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 7865
+  },
+  "_comment_api_key": "留空 = 首次运行自动生成随机 Key 并写回本文件；也可用 W2A_API_KEY 覆盖",
+  "api_key": "",
+  "auth_dir": "./auths",
+  "state_file": "./data/state.json",
+
+  "cooldown": {
+    "hard_credit": "12h",
+    "soft_rate": "60s",
+    "err_threshold": 3,
+    "err_cooldown": "10m"
+  },
+
+  "schedule": {
+    "checkin_times": ["09:00", "21:00"],
+    "keepalive_hours": [22]
+  },
+
+  "upstream": {
+    "timeout_seconds": 120
+  }
+}
