@@ -193,9 +193,18 @@ let browser = null;
   if (wbCn.total > 0) {
   await page.click('.arow[data-key] [data-det]');
   await page.waitForSelector('.det', { timeout: 5000 });
-  await page.waitForTimeout(1200);
+  // 明细要打一次上游，**不能**用固定 sleep 等它：响应慢时 1200ms 不够，
+  // 实测出现过「每条用量条宽度…（0 条）」这种偶发红 —— 看着像回归，其实是时序。
+  // 改成等元素真的出现。
+  let barAppeared = true;
+  try {
+    await page.waitForSelector('.det .bar', { timeout: 20000 });
+  } catch (e) {
+    barAppeared = false;
+  }
   const detText = await page.textContent('.det');
   assert(/积分明细/.test(detText), '详情面板含「积分明细」');
+  assert(barAppeared, '积分明细在 20 秒内渲染出用量条', '超时未出现 .det .bar');
   const hasBar = await page.$('.det .bar') !== null;
   assert(hasBar, '详情面板渲染出用量条', '未找到 .bar');
 
@@ -443,6 +452,24 @@ let browser = null;
   await page.waitForTimeout(400);
   const trCn = channels.find((c) => c.channel === 'traework/cn') || { total: 0, accounts: [] };
   if (trCn.total > 0) {
+    // 过滤断言要遍历**所有** traework/cn 账号，不能只看 accounts[0]：
+    // 实测第二个账号 33 条里有 25 条 remain=0，而下面面板只展开第一个 ——
+    // 只测主账号的话，这条断言在这份数据上是绿的却**从没被验证过**
+    // （端到端变异验证时它不红，因为主账号本来就没有 0 行条目）。
+    for (const acct of trCn.accounts) {
+      const r = await fetch(BASE + '/api/account/resource', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'traework/cn', uid: acct.uid }),
+      });
+      const j = await r.json();
+      const its = j.items || [];
+      const bad = its.filter((i) => !(i.total > 0 && i.remain > 0));
+      assert(bad.length === 0,
+        `TRAE 明细已过滤掉额度为 0 / 已用完的条目（…${acct.uid.slice(-6)}：${its.length} 条全部有剩余）`,
+        JSON.stringify(bad.slice(0, 2)));
+    }
+
     const trResp = await fetch(BASE + '/api/account/resource', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
@@ -453,9 +480,6 @@ let browser = null;
     assert(trItems.length > 0, `TRAE 明细返回 ${trItems.length} 条`, JSON.stringify(trData).slice(0, 150));
     assert(trItems.every((i) => i.expire_at), 'TRAE 每条明细都有到期时间',
       JSON.stringify(trItems.filter((i) => !i.expire_at).slice(0, 2)));
-    assert(trItems.every((i) => i.total > 0 && i.remain > 0),
-      `TRAE 明细已过滤掉额度为 0 / 已用完的条目（${trItems.length} 条全部有剩余）`,
-      JSON.stringify(trItems.filter((i) => !(i.total > 0 && i.remain > 0)).slice(0, 2)));
     assert(!trItems.some((i) => /^权益包 \d+$/.test(i.name)),
       'TRAE 明细用上游显示名，不再是「权益包 N」',
       JSON.stringify(trItems.slice(0, 3).map((i) => i.name)));
