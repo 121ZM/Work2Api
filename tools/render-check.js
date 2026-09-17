@@ -396,6 +396,44 @@ let browser = null;
 
   await page.screenshot({ path: path.join(OUT, '03-workbuddy-global.png'), fullPage: true });
 
+  // ── TRAE SOLO 页：明细口径与 WorkBuddy 完全不同，单独验 ──
+  // TRAE 的到期字段是 expire_time（Unix 秒），名字来自 display_desc，
+  // 且实测有一条 credits_limit=0 的「免费」包需要过滤掉。
+  await page.click('.nav-item[data-nav="traework"]');
+  await page.waitForSelector('.seg', { timeout: 5000 });
+  await page.waitForTimeout(400);
+  const trCn = channels.find((c) => c.channel === 'traework/cn') || { total: 0, accounts: [] };
+  if (trCn.total > 0) {
+    const trResp = await fetch(BASE + '/api/account/resource', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: 'traework/cn', uid: trCn.accounts[0].uid }),
+    });
+    const trData = await trResp.json();
+    const trItems = trData.items || [];
+    assert(trItems.length > 0, `TRAE 明细返回 ${trItems.length} 条`, JSON.stringify(trData).slice(0, 150));
+    assert(trItems.every((i) => i.expire_at), 'TRAE 每条明细都有到期时间',
+      JSON.stringify(trItems.filter((i) => !i.expire_at).slice(0, 2)));
+    assert(trItems.every((i) => i.total > 0), 'TRAE 明细已过滤掉额度为 0 的条目',
+      JSON.stringify(trItems.filter((i) => i.total <= 0).slice(0, 2)));
+    assert(!trItems.some((i) => /^权益包 \d+$/.test(i.name)),
+      'TRAE 明细用上游显示名，不再是「权益包 N」',
+      JSON.stringify(trItems.slice(0, 3).map((i) => i.name)));
+
+    await page.click('.arow[data-key] [data-det]');
+    await page.waitForSelector('.det .pkg', { timeout: 15000 });
+    await page.waitForTimeout(800);
+    const trShown = await page.$$eval('.det .pkg',
+      (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+    assert(trShown.length === trItems.length,
+      `TRAE 面板渲染 ${trItems.length} 条明细（与接口一致）`, String(trShown.length));
+    const badExp = trShown.filter((t) => !/到期时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(t));
+    assert(badExp.length === 0, 'TRAE 每条明细都显示了完整到期时间',
+      JSON.stringify(badExp.slice(0, 2)));
+    const zeroRows = trShown.filter((t) => /\s0 \/ 0\s/.test(t));
+    assert(zeroRows.length === 0, 'TRAE 面板没有「0 / 0」的零额度行', JSON.stringify(zeroRows.slice(0, 2)));
+  }
+
   // ── 模型页 ──
   await page.click('.nav-item[data-nav="models"]');
   await page.waitForSelector('.mcell', { timeout: 10000 });

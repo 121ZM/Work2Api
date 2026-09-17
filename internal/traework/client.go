@@ -439,6 +439,36 @@ func (c *Client) UserResource(a *auth.Auth) (int64, error) {
 	return remain, nil
 }
 
+// packName 取权益包的显示名。
+//
+// 原来一律用「权益包 N」，面板上 13 行全是「权益包 1…13」，完全看不出是什么包。
+// 上游其实给了 display_desc（"老用户福利" / "签到奖励" / "每月登录赠送" / "免费"…），
+// 优先用它；再退回 group_name，最后才用序号。
+func packName(displayDesc, groupName string, idx int) string {
+	if s := strings.TrimSpace(displayDesc); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(groupName); s != "" {
+		return s
+	}
+	return fmt.Sprintf("权益包 %d", idx)
+}
+
+// packExpireAt 取权益包到期时间（Unix 秒），取不到返回 0。
+//
+// 实测（traework/cn 真实账号，13 条权益包）：expire_time 与
+// entitlement_base_info.end_time **都有值且恒等**（如 1791081100
+// = 2026-10-04 10:31:40），所以用前者、后者兜底。
+func packExpireAt(expireTime, endTime int64) int64 {
+	if expireTime > 0 {
+		return expireTime
+	}
+	if endTime > 0 {
+		return endTime
+	}
+	return 0
+}
+
 // UserResourceDetail 查询积分明细（每个权益包一条）。
 func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceItem, error) {
 	req, err := http.NewRequest(http.MethodPost, c.ugBase(a)+EpEntUsage, bytes.NewReader([]byte(`{"require_usage":true}`)))
@@ -452,8 +482,12 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 	}
 	var resp struct {
 		UserEntitlementPackList []struct {
-			EntitlementBaseInfo struct {
-				Quota struct {
+			DisplayDesc string `json:"display_desc"`
+			GroupName   string `json:"group_name"`
+			ExpireTime  int64  `json:"expire_time"`
+			Base        struct {
+				EndTime int64 `json:"end_time"`
+				Quota   struct {
 					CreditsLimit float64 `json:"credits_limit"`
 				} `json:"quota"`
 			} `json:"entitlement_base_info"`
@@ -468,7 +502,13 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 	var total int64
 	items := make([]provider.ResourceItem, 0, len(resp.UserEntitlementPackList))
 	for i, p := range resp.UserEntitlementPackList {
-		limit := p.EntitlementBaseInfo.Quota.CreditsLimit
+		limit := p.Base.Quota.CreditsLimit
+		// 额度为 0 的权益包直接跳过。实测 traework/cn 有一条「免费」包
+		// credits_limit=0 —— 它对合计没有任何贡献（remain 必为 0），
+		// 留在列表里只是噪音。
+		if limit <= 0 {
+			continue
+		}
 		used := p.Usage.CreditsAmount
 		remain := int64(limit - used)
 		if remain < 0 {
@@ -476,10 +516,11 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 		}
 		total += remain
 		items = append(items, provider.ResourceItem{
-			Name:   fmt.Sprintf("权益包 %d", i+1),
-			Total:  int64(limit),
-			Used:   int64(used),
-			Remain: remain,
+			Name:     packName(p.DisplayDesc, p.GroupName, i+1),
+			Total:    int64(limit),
+			Used:     int64(used),
+			Remain:   remain,
+			ExpireAt: packExpireAt(p.ExpireTime, p.Base.EndTime),
 		})
 	}
 	return total, items, nil

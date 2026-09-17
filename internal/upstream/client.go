@@ -431,6 +431,12 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 	items := make([]provider.ResourceItem, 0, len(accounts))
 	for _, acct := range accounts {
 		t, used, remain := pickRemain(acct)
+		// 额度为 0 的权益包跳过：它对合计没有贡献（total 为 0 时 remain 必为 0），
+		// 留在列表里只是噪音。实测 workbuddy/cn 当前没有这种条目，
+		// 但 traework/cn 有，两个渠道口径保持一致。
+		if t <= 0 {
+			continue
+		}
 		total += remain
 		items = append(items, provider.ResourceItem{
 			Name: acct.PackageName, Total: t, Used: used, Remain: remain,
