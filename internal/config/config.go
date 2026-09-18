@@ -39,6 +39,60 @@ func GenerateAPIKey() string {
 	return APIKeyPrefix + hex.EncodeToString(buf)
 }
 
+// ── 数据根 ──────────────────────────────────────────────────────────────
+//
+// 配置里的路径（config.json 自己、auth_dir、state_file）都是**相对当前工作目录**
+// 解析的。这曾经让「数据落在哪」完全取决于你从哪个目录启动 —— 同一个发布包能长出
+// 两份互不相干的 config.json（api_key 不同 → 已配置的客户端全部 401，且毫无报错）：
+//
+//	托盘启动（工作目录 = 安装根）→ <安装根>\config.json
+//	双击 bin\work2api.exe        → <安装根>\bin\config.json
+//
+// 下面两个函数给出一个**与启动方式无关**的数据根，serve/login 启动时切过去。
+
+// LooksLikeDataRoot 判断 dir 是否像个数据根（安装根 / 仓库根）。
+//
+// 判据只用「根目录才会有、子目录不会有」的东西，且**只看存在性**：
+// config.json / config.local.json / config.example.json / auths / data / go.mod。
+// 发布包与仓库都至少命中其中之一（config.example.json），而包内的 bin\ 一个都不命中。
+func LooksLikeDataRoot(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	for _, name := range []string{
+		"config.json", "config.local.json", "config.example.json",
+		"auths", "data", "go.mod",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// DataRoot 由可执行文件路径与当前工作目录推导数据根。判定顺序：
+//
+//  1. **cwd 像数据根就用 cwd** —— 这一条保证现有用法一字不变：
+//     dev 里 `cd <repo> && dist/work2api.exe serve`、托盘（它把工作目录设成安装根）、
+//     以及「自己挑了个目录放 config.json 再在那里启动」全都命中它。
+//  2. 否则看 **exe 所在目录的上一级** —— 发布包 exe 在 bin\、仓库 exe 在 dist\，
+//     都是这个形状，与托盘设置工作目录的规则是同一条。
+//  3. 再否则用 **exe 所在目录**：单个 exe 被拷到别处时，数据落在程序旁边，
+//     而不是莫名写进它的父目录。
+func DataRoot(exePath, cwd string) string {
+	if LooksLikeDataRoot(cwd) {
+		return cwd
+	}
+	if exePath != "" {
+		exeDir := filepath.Dir(exePath)
+		if parent := filepath.Dir(exeDir); parent != exeDir && LooksLikeDataRoot(parent) {
+			return parent
+		}
+		return exeDir
+	}
+	return cwd
+}
+
 // Listen 监听地址：Host 为空表示全部接口。
 type Listen struct {
 	Host string `json:"host"`

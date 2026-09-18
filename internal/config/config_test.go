@@ -158,3 +158,124 @@ func TestUnknownFieldsAreIgnored(t *testing.T) {
 		t.Fatalf("APIKey = %q，期望自动生成", c.APIKey)
 	}
 }
+
+// ── 数据根 ──────────────────────────────────────────────────────────────
+//
+// 这组测试锁的是「同一个发布包不该长出两份 config.json」——
+// 那个缺陷是静的：落在 bin\ 的那份有自己的 api_key，已配置的客户端全部 401，
+// 而日志里一个错都不打。判据只依赖 (exePath, cwd) 两个入参，所以能纯函数测。
+
+// 每个 marker 单独都要能认出来；目录形态与文件形态都算。
+func TestLooksLikeDataRootMarkers(t *testing.T) {
+	files := []string{"config.json", "config.local.json", "config.example.json", "go.mod"}
+	dirs := []string{"auths", "data"}
+
+	for _, name := range files {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if !LooksLikeDataRoot(dir) {
+			t.Errorf("含 %s 的目录应被识别为数据根", name)
+		}
+	}
+	for _, name := range dirs {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if !LooksLikeDataRoot(dir) {
+			t.Errorf("含 %s 目录的应被识别为数据根", name)
+		}
+	}
+}
+
+// 反例：空目录、不存在的目录、空串都不能算数据根 ——
+// 否则「从任意目录启动」都会被误判成数据根，等于没修。
+func TestLooksLikeDataRootRejects(t *testing.T) {
+	if LooksLikeDataRoot("") {
+		t.Error("空串不该是数据根")
+	}
+	if LooksLikeDataRoot(filepath.Join(t.TempDir(), "不存在")) {
+		t.Error("不存在的目录不该是数据根")
+	}
+	if LooksLikeDataRoot(t.TempDir()) {
+		t.Error("空目录不该是数据根")
+	}
+}
+
+// 回归：发布包布局。exe 在 <pkg>\bin\，从 bin\ 双击启动（cwd = bin\）。
+// 数据根必须是包根，否则 config.json 落进 bin\，与托盘启动时写的
+// <pkg>\config.json 变成两份、两个 api_key。
+func TestDataRootPackageLayout(t *testing.T) {
+	pkg := t.TempDir()
+	bin := filepath.Join(pkg, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "config.example.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DataRoot(filepath.Join(bin, "work2api.exe"), bin); got != pkg {
+		t.Fatalf("发布包布局：DataRoot = %q，期望包根 %q", got, pkg)
+	}
+	// 托盘启动时 cwd 已经是包根 → 原样返回（这条保证现有用法不变）
+	if got := DataRoot(filepath.Join(bin, "work2api.exe"), pkg); got != pkg {
+		t.Fatalf("cwd 已是包根时 DataRoot = %q，期望 %q", got, pkg)
+	}
+}
+
+// 回归：dev 仓库布局。exe 在 <repo>\dist\，无论 cwd 是仓库根还是 dist\，
+// 数据根都必须是仓库根 —— config.json / auths / data 都在那儿。
+func TestDataRootDevLayout(t *testing.T) {
+	repo := t.TempDir()
+	dist := filepath.Join(repo, "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dist, "work2api.exe")
+
+	if got := DataRoot(exe, repo); got != repo {
+		t.Fatalf("cwd=仓库根：DataRoot = %q，期望 %q", got, repo)
+	}
+	if got := DataRoot(exe, dist); got != repo {
+		t.Fatalf("cwd=dist：DataRoot = %q，期望 %q", got, repo)
+	}
+}
+
+// cwd 自己像个数据根就优先用它 —— 用户自己挑了个目录放 config.json 在那里启动，
+// 不能被 exe 的位置「纠正」走。这条是「零行为变化」的兜底。
+func TestDataRootPrefersCwdOverExe(t *testing.T) {
+	userDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(userDir, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	otherPkg := t.TempDir()
+	if err := os.WriteFile(filepath.Join(otherPkg, "go.mod"), []byte("module y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := DataRoot(filepath.Join(otherPkg, "bin", "work2api.exe"), userDir)
+	if got != userDir {
+		t.Fatalf("DataRoot = %q，期望优先返回 cwd %q", got, userDir)
+	}
+}
+
+// 单个 exe 被拷到别处（周围什么都没有）：数据落在 exe 旁边，
+// 而不是莫名写进它的父目录 —— 也不该 panic 或返回空。
+func TestDataRootFallsBackToExeDir(t *testing.T) {
+	lonely := t.TempDir()
+	exe := filepath.Join(lonely, "work2api.exe")
+
+	if got := DataRoot(exe, lonely); got != lonely {
+		t.Fatalf("孤立 exe：DataRoot = %q，期望 exe 所在目录 %q", got, lonely)
+	}
+	// 拿不到 exe 路径时退化成 cwd，不能返回空
+	if got := DataRoot("", lonely); got != lonely {
+		t.Fatalf("exePath 为空：DataRoot = %q，期望 %q", got, lonely)
+	}
+}

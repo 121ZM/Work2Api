@@ -127,6 +127,11 @@ func cmdLogin(args []string) int {
 		return 2
 	}
 
+	// 与 serve 同规则：登录产物（凭证文件）也必须落到同一个数据根，
+	// 否则双击 bin\work2api.exe login 会把账号写进 bin\auths\，
+	// 而服务从包根读 auths\ —— 登录「成功」但服务看不见这个账号。
+	enterDataRoot(*cfgPath != "")
+
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载配置失败：%v\n", err)
@@ -219,12 +224,53 @@ func regionLabel(r region.Region) string {
 	return "国内版"
 }
 
+// enterDataRoot 把进程工作目录切到「数据根」，让「数据落在哪」不再取决于启动方式。
+//
+// 背景：配置里的路径都是相对 cwd 解析的，于是同一个发布包能长出两份互不相干的
+// config.json（api_key 不同 → 已配置的客户端全部 401，而且毫无报错）：
+//
+//	托盘启动（工作目录 = 安装根）→ <安装根>\config.json
+//	双击 bin\work2api.exe        → <安装根>\bin\config.json
+//
+// 只在**没有显式指定 -config** 时切换。显式指定配置文件的人是在自己挑目录，
+// 此时动 cwd 会改变他配置里相对路径的含义 —— 那不是修 bug，是改语义。
+func enterDataRoot(explicitConfig bool) {
+	if explicitConfig {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return // 拿不到自身路径就什么都不动，退化成旧行为
+	}
+	enterDataRootFor(exe)
+}
+
+// enterDataRootFor 是可测的核心：exePath 由调用方注入，返回切换后的目录（未切换为空）。
+func enterDataRootFor(exePath string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	root := config.DataRoot(exePath, cwd)
+	if root == "" || root == cwd {
+		return ""
+	}
+	if err := os.Chdir(root); err != nil {
+		fmt.Fprintf(os.Stderr, "警告：无法切换到数据根 %s（继续用 %s）：%v\n", root, cwd, err)
+		return ""
+	}
+	// 打一行，让这条静默生效的规则可被审计 —— 它以前正是静默错的。
+	fmt.Fprintf(os.Stderr, "工作目录 %s（数据根）\n", root)
+	return root
+}
+
 func cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "配置文件路径（默认 ./config.json）")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	enterDataRoot(*cfgPath != "")
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载配置失败：%v\n", err)

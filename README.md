@@ -20,6 +20,11 @@ go build -o dist/work2api.exe ./cmd/work2api
 | `work2api.exe` | 反代服务本体，无界面 | `go build -o dist/work2api.exe ./cmd/work2api` |
 | `work2api-tray.exe` | 系统托盘：拉起/停止服务、打开面板 | `go build -ldflags "-H=windowsgui" -o dist/work2api-tray.exe ./cmd/work2api-tray` |
 
+上面是开发时的快捷命令。**要与发布包口径一致**（`tools/make-release.py` 用的那套）要显式：
+`CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w"`。
+漏掉 `CGO_ENABLED=0` 会得到一个比发布物大 6KB 的二进制 —— 两者不是同一个东西，
+拿本地那份去复现发布包的问题会得出错误结论。
+
 **两者互相独立**，不是主从关系：
 
 - 服务不依赖托盘 —— `work2api.exe serve` 直接可跑。
@@ -56,6 +61,10 @@ BUILD.txt / SHA256SUMS    构建信息 / 校验和
 写到解压目录的上一级，同时 `serve.log` 又留在包内，两者不一致。让包遵守和 dev 树
 相同的约定即可：exe 下沉一层，包根即工作目录。打包脚本末尾有断言盯着这条
 （包根出现任何 `.exe` 直接报错退出）。
+
+服务的**数据根自纠正**是第二条独立防线：直接双击 `bin\work2api.exe serve` 时工作目录是
+`bin\`，服务自己会切到包根（见上文「数据落在哪」）。两条防线针对的是不同的入口 ——
+托盘那条管「工作目录怎么设」，服务这条管「从哪儿被启动都不跑偏」。
 
 包内那个 vbs 是**打包时现生成的**，不是从 `tools/` 复制 —— `tools/start-work2api.vbs`
 里写死了本机的绝对路径，那是给这台机器的「启动」文件夹用的部署件，原样打进包在别的
@@ -311,6 +320,26 @@ work2api login  -kind <workbuddy|trae> -region <cn|global> [-timeout 5m]
 
 `config.json` 首次运行会自动创建；`api_key` 留空即自动生成随机值并写回
 （详见上文「API Key 从哪来」）。该文件含密钥，已在 `.gitignore` 中排除。
+
+### 数据落在哪（数据根）
+
+`config.json` 自己、`auth_dir`、`state_file` 都是**相对数据根**的路径。数据根与启动方式
+无关，按下列顺序判定（实现见 `internal/config.DataRoot`）：
+
+1. **当前工作目录像数据根就用它** —— 目录里只要有 `config.json` / `config.local.json` /
+   `config.example.json` / `auths` / `data` / `go.mod` 之一即算。所以
+   `cd <仓库> && dist/work2api.exe serve`、以及「自己挑个目录放 config.json 在那里启动」
+   这些用法**一字不变**。
+2. 否则取 **exe 所在目录的上一级** —— 仓库里 exe 在 `dist\`、发布包里在 `bin\`，
+   上一级正好是仓库根 / 包根。
+3. 再否则用 **exe 所在目录**（单个 exe 被拷到别处时，数据落在它旁边）。
+
+**显式指定 `-config` 时不切换工作目录** —— 那会改变该配置里相对路径的含义，
+属于改语义而不是修 bug。发生切换时 stderr 打一行 `工作目录 <路径>（数据根）`，便于核对。
+
+为什么需要这条规则：发布包里 exe 在 `bin\`，双击 `bin\work2api.exe serve` 时工作目录
+是 `bin\` —— 不切换的话会在 `bin\` 里长出**另一份 config.json**，api_key 与包根那份不同，
+结果是已配置的客户端全部 401 而日志一个错都不打。
 
 `regions.workbuddy` / `regions.trae` 可覆盖内置域名表（键 `cn` / `global`），
 留空即用内置表（见 `internal/region`）。
