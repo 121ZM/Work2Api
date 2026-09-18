@@ -37,12 +37,34 @@ go build -o dist/work2api.exe ./cmd/work2api
 python tools/make-release.py
 ```
 
-产出 `dist/release/work2api-<日期>-<短rev>-windows-amd64.zip`，内含两个 exe、配置样例、
-本 README、开机脚本，外加 `BUILD.txt`（构建信息）与 `SHA256SUMS`（校验和）。
-工作区不干净时版本号会带 `-dirty` 后缀，提醒这不是正式发布。
+产出 `dist/release/work2api-<日期>-<短rev>-windows-amd64.zip`。工作区不干净时版本号会带
+`-dirty` 后缀，提醒这不是正式发布。包内布局：
 
-版本号由构建时 `-X main.version=` 注入，`work2api.exe version` 可打印；托盘没有控制台，
-版本号写进 `tray.log`。**即使忘了注入**（显示 `dev`），`go version -m <exe>` 仍能读回
+```
+bin/work2api.exe          反代服务本体
+bin/work2api-tray.exe     系统托盘（唯一入口，会自己拉起服务）
+config.example.json       配置样例
+README.md                 本文件
+start-work2api.vbs        开机自启（放它的**快捷方式**进「启动」文件夹）
+BUILD.txt / SHA256SUMS    构建信息 / 校验和
+```
+
+**两个 exe 必须放在包内的 `bin/` 子目录，不能摊在包根。** 托盘的
+`servicePaths()` 规则是「工作目录 = exe 所在目录的上一级」：dev 树里 exe 在
+`dist/`、上一级就是仓库根（`config.json` / `auths/` / `data/` 都在那儿），规则成立；
+而发布包若把 exe 放在包根，"上一级"就跑到**包外面**去了 —— 实测会把 `config.json`
+写到解压目录的上一级，同时 `serve.log` 又留在包内，两者不一致。让包遵守和 dev 树
+相同的约定即可：exe 下沉一层，包根即工作目录。打包脚本末尾有断言盯着这条
+（包根出现任何 `.exe` 直接报错退出）。
+
+包内那个 vbs 是**打包时现生成的**，不是从 `tools/` 复制 —— `tools/start-work2api.vbs`
+里写死了本机的绝对路径，那是给这台机器的「启动」文件夹用的部署件，原样打进包在别的
+机器上是废的。包内版本按 `WScript.ScriptFullName` **自定位**找 `bin\work2api-tray.exe`，
+因此必须用**快捷方式**放进「启动」文件夹（右键 → 创建快捷方式），
+直接复制过去会找不到目标并弹框报错（不静默）。
+
+版本号由构建时 `-X main.version=` 注入，`bin/work2api.exe version` 可打印；托盘没有控制台，
+版本号写进 `bin/tray.log`。**即使忘了注入**（显示 `dev`），`go version -m <exe>` 仍能读回
 构建时的 commit —— 两个来源都留着，不二选一。
 
 ---
