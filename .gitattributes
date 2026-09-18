@@ -4,3 +4,15 @@
 # 二进制不做行尾转换
 *.png binary
 *.ico binary
+
+# Windows 脚本必须 CRLF。
+#
+# 上面的 * text=auto eol=lf 会让这些文件 checkout 成裸 LF，而 WScript 解析
+# .vbs、cmd.exe 解析 .bat/.cmd 时裸 LF 有**静默失效**的风险 —— 不报错，就是不跑。
+# 对开机自启脚本（tools/start-work2api.vbs）尤其致命：不生效时毫无征兆，
+# 只有下次登录发现服务没起来才知道。
+#
+# 放在 eol=lf 那条之后，靠「gitattributes 后者优先」覆盖它。
+*.vbs text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
