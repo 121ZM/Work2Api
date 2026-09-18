@@ -91,21 +91,10 @@ func (a *Auth) Key() string {
 	return a.Kind + "|" + a.Region.String() + "|" + a.UID
 }
 
-// Label 返回面板展示用的简短标识。
-func (a *Auth) Label() string {
-	if a.Nickname != "" {
-		return a.Nickname
-	}
-	if a.UID != "" {
-		return a.UID
-	}
-	return filepath.Base(a.FilePath)
-}
-
 // RegionFromDomain 按 domain 后缀判定版本；无法判定时返回 CN（向后兼容）。
 //
 // 这是 region 的**交叉校验兜底**：正常情况下 Region 在加载时已由文件名或
-// 显式字段定值，此函数用于校验两者是否一致，不一致则拒收（见 importauth）。
+// 显式字段定值，此函数用于校验两者是否一致，不一致则拒收。
 func RegionFromDomain(domain string) region.Region {
 	d := strings.ToLower(strings.TrimSpace(domain))
 	if d == "" {
@@ -232,7 +221,7 @@ func (a *Auth) SaveAtomic() error {
 }
 
 // SaveAtomicAs 以嵌套形原子写入指定路径，**不改动** a.FilePath。
-// 供导入流程使用：把扫描到的凭证落到自己的 authDir，而不触碰客户端文件。
+// 供登录流程使用：把新账号落到自己的 authDir。
 func (a *Auth) SaveAtomicAs(path string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

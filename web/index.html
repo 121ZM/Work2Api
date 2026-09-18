@@ -608,7 +608,6 @@ code,pre,.mono{font-family:var(--font-mono)}
 
     h += '<h2 class="sec-h">' + ic('zap', 14) + '快捷操作</h2>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
-        btn('outline sm', '扫描本机凭证', 'down', ' id="actImport"') +
         btn('outline sm', '立即签到', 'check', ' id="actCheckin"') +
         btn('outline sm', '刷新全部账号', 'refresh', ' id="actRefresh"') +
       '</div>';
@@ -711,7 +710,7 @@ code,pre,.mono{font-family:var(--font-mono)}
     if(!ch || !ch.accounts || !ch.accounts.length){
       h += '<div class="card dashed"><div class="empty">' + ic('archive', 24) +
         '<div class="t1">这个版本还没有账号</div>' +
-        '<div class="t2">点右上角「登录新账号」，或用「总览 → 扫描本机凭证」导入已登录的客户端账号</div>' +
+        '<div class="t2">点右上角「登录新账号」添加账号</div>' +
         '</div></div>';
     } else {
       h += '<div class="card">' + ch.accounts.map(function(a){
@@ -1135,7 +1134,6 @@ code,pre,.mono{font-family:var(--font-mono)}
     renderBanner();
   }
   function bindOverview(){
-    var i = $('actImport'); if(i) i.onclick = function(){ importLocal(i); };
     var c = $('actCheckin'); if(c) c.onclick = function(){ checkinAll(c); };
     var r = $('actRefresh'); if(r) r.onclick = function(){ refreshAll(r); };
     $('view').querySelectorAll('[data-goto]').forEach(function(el){
@@ -1260,33 +1258,6 @@ code,pre,.mono{font-family:var(--font-mono)}
       })
       .catch(function(e){ toast('签到请求失败：' + e.message, 'err'); })
       .finally(function(){ b.disabled = false; });
-  }
-
-  function importLocal(b){
-    b.disabled = true;
-    var old = b.innerHTML;
-    b.innerHTML = '<span class="spin"></span> 扫描中…';
-    api('/api/import/local', { method:'POST', body: '{}' })
-      .then(function(j){
-        var rs = j.results || [];
-        if(!rs.length){
-          toast('本机没有发现可导入的凭证。\nWorkBuddy 需先用官方客户端登录过一次；' +
-            'TRAE 的凭证是加密存储，只能走「登录新账号」。', 'err');
-        } else {
-          rs.filter(function(r){ return r.action !== 'rejected'; }).forEach(function(r){
-            toast('已' + (r.action === 'created' ? '导入' : '更新') + '：' +
-              (r.nickname || r.uid) + '（' + r.region + '）', 'ok');
-          });
-          rs.filter(function(r){ return r.action === 'rejected'; }).forEach(function(r){
-            toast('跳过 ' + (r.uid || '') + '：' + (r.reason || '被拒绝'), 'err');
-          });
-        }
-        (j.notes || []).forEach(function(n){ toast(n); });
-        models = null;
-        return refresh();
-      })
-      .catch(function(e){ toast('导入失败：' + e.message, 'err'); })
-      .finally(function(){ b.disabled = false; b.innerHTML = old; });
   }
 
   /* ══════ 登录 ══════ */

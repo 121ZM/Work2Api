@@ -19,7 +19,6 @@ import (
 
 	"work2api/internal/auth"
 	"work2api/internal/config"
-	"work2api/internal/importauth"
 	"work2api/internal/loginsvc"
 	"work2api/internal/pool"
 	"work2api/internal/provider"
@@ -292,7 +291,6 @@ func (a *App) attachAPI(mux *http.ServeMux, protect func(http.HandlerFunc) http.
 	mux.HandleFunc("POST /api/account/refresh", protect(a.apiRefresh))
 	mux.HandleFunc("POST /api/account/resource", protect(a.apiResource))
 	mux.HandleFunc("POST /api/account/toggle", protect(a.apiToggleAccount))
-	mux.HandleFunc("POST /api/import/local", protect(a.apiImportLocal))
 	mux.HandleFunc("POST /api/login/start", protect(a.apiLoginStart))
 	mux.HandleFunc("GET /api/login/poll", protect(a.apiLoginPoll))
 	mux.HandleFunc("POST /api/login/cancel", protect(a.apiLoginCancel))
@@ -539,30 +537,6 @@ func (a *App) apiToggleAccount(w http.ResponseWriter, r *http.Request) {
 		"enabled": *req.Enabled,
 		"healthy": p.Healthy(),
 		"total":   p.Len(),
-	})
-}
-
-// apiImportLocal 扫描本机客户端凭证并导入。
-func (a *App) apiImportLocal(w http.ResponseWriter, r *http.Request) {
-	dryRun := r.URL.Query().Get("dry_run") == "1"
-	scan := importauth.Scan()
-	var results []importauth.Result
-	if !dryRun && len(scan.Candidates) > 0 {
-		var err error
-		results, err = importauth.Import(scan.Candidates, a.cfg.AuthDir)
-		if err != nil {
-			writeAPI(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
-		}
-		// 把新导入的账号热加载进池
-		a.reloadAccounts()
-	}
-	results = append(results, scan.Rejected...)
-	writeAPI(w, http.StatusOK, map[string]any{
-		"dry_run":    dryRun,
-		"candidates": len(scan.Candidates),
-		"results":    results,
-		"notes":      scan.Notes,
 	})
 }
 

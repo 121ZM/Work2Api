@@ -6,7 +6,6 @@
 
 ```bash
 go build -o dist/work2api.exe ./cmd/work2api
-./dist/work2api.exe import      # 扫描本机已登录的客户端账号
 ./dist/work2api.exe serve       # 启动服务，打开 http://127.0.0.1:7865
 ```
 
@@ -191,7 +190,6 @@ POST /api/account/checkin           立即签到（{ "channel": "workbuddy/cn" }
 POST /api/account/refresh           刷新 token + 积分（{ "channel": ..., "uid": ... } 可限定）
 POST /api/account/resource          查单账号积分明细 → { total, items[] }，每条含 expire_at
 POST /api/account/toggle            账号快关：{ "channel", "uid", "enabled" }，enabled 必填
-POST /api/import/local              扫描本机客户端凭证并导入（?dry_run=1 只扫描）
 POST /api/login/start               发起交互式登录 → { kind, region }
 GET  /api/login/poll                轮询登录状态 → { kind, region }
 POST /api/login/cancel              放弃在途登录
@@ -235,27 +233,12 @@ GET  /                              内嵌控制台面板（不鉴权）
 
 ```
 work2api serve  [-config config.json]
-work2api import [-config config.json] [-auth-dir DIR] [-dry-run] [-json]
 work2api login  -kind <workbuddy|trae> -region <cn|global> [-timeout 5m]
 ```
 
 ---
 
 ## 凭证来源
-
-### 本机导入（`import` / 面板「扫描本机凭证并导入」）
-
-| 渠道 | 路径 | 形态 |
-|---|---|---|
-| WorkBuddy cn | `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` | 明文 JSON |
-| WorkBuddy global | 同目录 `workbuddy-desktop-ai.info` | 明文 JSON |
-| TRAE cn/global | `%APPDATA%\TRAE SOLO[ CN]\User\globalStorage\storage.json` | **TLV 二进制，不可解析** |
-
-导入是**单向**的：只读客户端文件，绝不回写。写入本项目的 `auths/` 目录，文件名
-`<kind>-<region>-<uid>.json`。
-
-TRAE 只能走 OAuth —— 客户端 `storage.json` 里的 `iCubeAuthInfo://*` base64 解码后
-是 TLV 二进制（以 `dGMFEAAA` 开头），不是明文 JWT。
 
 ### 交互式登录（`login` / 面板「登录新账号」）
 
@@ -505,7 +488,7 @@ TRAE 走另一个接口（`/trae/api/v2/pay/web_user_ent_usage`），字段名�
 - 四个渠道的**模型列表**均来自上游实时拉取（workbuddy/global 除外，见上表）
 - WorkBuddy global **静态表 20 个模型逐个真实调用**：筛出 11 个可用、剔除 8 个 `11102`、
   1 个模型特有 `429`（用同账号同刻的对照实验定性），该渠道最终对外 **12 个**
-- 本机凭证**导入**、账号池冷却与路由、面板全部交互
+- 账号池冷却与路由、面板全部交互
   （92 项渲染断言 + 18 项冒烟断言 + 7 项静态校验）
 
 ---
@@ -513,11 +496,10 @@ TRAE 走另一个接口（`/trae/api/v2/pay/web_user_ent_usage`），字段名�
 ## 目录结构
 
 ```
-cmd/work2api/          CLI 入口（serve / import / login）
+cmd/work2api/          CLI 入口（serve / login）
 internal/region/       域名表 + 签到能力位（叶子包，无内部依赖）
 internal/config/       配置加载 + 环境变量覆盖
 internal/auth/         凭证解析、region 判定、原子写回
-internal/importauth/   本机客户端凭证单向导入
 internal/login/        WorkBuddy OAuth（region 参数化）
 internal/login_trae/   TRAE PKCE 登录 + 本地回调
 internal/loginsvc/     登录会话管理（发起 → 轮询 → 落盘）
@@ -574,7 +556,8 @@ NODE_PATH="C:/Users/dev/.workbuddy-ai/binaries/node/workspace/node_modules" node
 go test ./... -cover
 ```
 
-共 **139** 个测试。选测什么的标准是「**有没有值得锁的不变量**」，
+共 **128** 个测试（核心包；托盘包 `cmd/work2api-tray` 另有 15 个，未列入下表）。
+选测什么的标准是「**有没有值得锁的不变量**」，
 不是「覆盖率低的都补」—— 反代项目里最该锁的，是从实测得来、
 又容易被后人「顺手改整齐」破坏的事实。
 
@@ -582,8 +565,7 @@ go test ./... -cover
 |---|---|---|
 | `web` | 93.8% | Key 只对回环注入、占位符替换、恶意 Key 转义 |
 | `region` | 82.2% | CN 的 `ChatBase` ≠ `BillingBase`；两版 `platform` 都是 `CLI`；签到能力位只对 cn 为真 |
-| `importauth` | 80.7% | region 交叉校验、精确文件名（不读轮转备份）、**单向导入**（源文件字节不变） |
-| `auth` | 76.6% | 毫秒归一、region 判定、两区账号共存 |
+| `auth` | 80.9% | 毫秒归一、region 判定、两区账号共存 |
 | `provider` | 75.0% | 模型 ID 往返闭环、静态表实测清单、黑名单按 region 独立 |
 | `config` | 58.5% | Key 自动生成与写回、环境变量不落盘 |
 | `scheduler` | 44.3% | 「今天已签到」记成功且不冷却、国际版整池跳过、签到失败不冷却 |

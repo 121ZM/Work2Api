@@ -4,13 +4,11 @@
 // 用法：
 //
 //	work2api serve  [-config config.json]                      启动反代服务（默认）
-//	work2api import [-config config.json] [-dry-run] [-json]   扫描并导入本机客户端账号
 //	work2api login  -kind <workbuddy|trae> -region <cn|global> 交互式登录新账号
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,7 +22,6 @@ import (
 
 	"work2api/internal/app"
 	"work2api/internal/config"
-	"work2api/internal/importauth"
 	"work2api/internal/loginsvc"
 	"work2api/internal/provider"
 	"work2api/internal/region"
@@ -34,8 +31,6 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		switch args[0] {
-		case "import":
-			os.Exit(cmdImport(args[1:]))
 		case "login":
 			os.Exit(cmdLogin(args[1:]))
 		case "serve", "run":
@@ -53,7 +48,6 @@ func usage() {
 
 用法：
   work2api serve  [-config config.json]                        启动反代服务（默认）
-  work2api import [-config config.json] [-dry-run] [-json]     扫描并导入本机客户端账号
   work2api login  -kind <workbuddy|trae> -region <cn|global>   交互式登录新账号
                   [-config config.json] [-timeout 5m]
 
@@ -94,93 +88,6 @@ func loadConfig(path string) (*config.Config, error) {
 		return cfg, nil
 	}
 	return config.Load(path)
-}
-
-func cmdImport(args []string) int {
-	fs := flag.NewFlagSet("import", flag.ContinueOnError)
-	cfgPath := fs.String("config", "", "配置文件路径（默认 ./config.json）")
-	authDir := fs.String("auth-dir", "", "凭证输出目录（覆盖配置文件）")
-	dryRun := fs.Bool("dry-run", false, "只扫描不写入")
-	asJSON := fs.Bool("json", false, "以 JSON 输出")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-
-	cfg, err := loadConfig(*cfgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载配置失败：%v\n", err)
-		return 1
-	}
-	if *authDir != "" {
-		cfg.AuthDir = *authDir
-	}
-
-	scan := importauth.Scan()
-
-	var results []importauth.Result
-	if len(scan.Candidates) > 0 && !*dryRun {
-		results, err = importauth.Import(scan.Candidates, cfg.AuthDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "导入失败：%v\n", err)
-			return 1
-		}
-	}
-	results = append(results, scan.Rejected...)
-
-	if *asJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(map[string]any{
-			"auth_dir":   absOrSelf(cfg.AuthDir),
-			"dry_run":    *dryRun,
-			"candidates": len(scan.Candidates),
-			"results":    results,
-			"notes":      scan.Notes,
-		})
-		return 0
-	}
-
-	fmt.Printf("凭证目录：%s\n", absOrSelf(cfg.AuthDir))
-	if *dryRun {
-		fmt.Println("模式：只扫描（-dry-run），未写入任何文件")
-	}
-	fmt.Println()
-
-	if len(scan.Candidates) == 0 {
-		fmt.Println("未发现可导入的账号。")
-	} else {
-		fmt.Printf("发现 %d 个账号：\n", len(scan.Candidates))
-		for _, c := range scan.Candidates {
-			exp := "无过期时间"
-			if c.ExpiresAt > 0 {
-				exp = fmt.Sprintf("expiresAt=%d", c.ExpiresAt)
-			}
-			fmt.Printf("  [%-6s] %-10s %-20s %s\n", c.Region, c.Kind, c.Label(), exp)
-		}
-	}
-
-	if len(results) > 0 {
-		fmt.Println()
-		for _, r := range results {
-			line := fmt.Sprintf("  %-9s %-6s %-10s %s", r.Action, r.Region, r.Kind, r.UID)
-			if r.Nickname != "" {
-				line += " (" + r.Nickname + ")"
-			}
-			if r.Reason != "" {
-				line += " —— " + r.Reason
-			}
-			fmt.Println(line)
-		}
-	}
-
-	if len(scan.Notes) > 0 {
-		fmt.Println()
-		for _, n := range scan.Notes {
-			fmt.Println("提示：" + n)
-		}
-	}
-	return 0
 }
 
 // cmdLogin 交互式登录：发起 → 打印授权 URL → 轮询直到完成或超时。
