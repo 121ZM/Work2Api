@@ -11,6 +11,42 @@ go build -o dist/work2api.exe ./cmd/work2api
 
 ---
 
+## 构建与打包
+
+### 两个可执行程序
+
+| 程序 | 作用 | 构建命令 |
+|---|---|---|
+| `work2api.exe` | 反代服务本体，无界面 | `go build -o dist/work2api.exe ./cmd/work2api` |
+| `work2api-tray.exe` | 系统托盘：拉起/停止服务、打开面板 | `go build -ldflags "-H=windowsgui" -o dist/work2api-tray.exe ./cmd/work2api-tray` |
+
+**两者互相独立**，不是主从关系：
+
+- 服务不依赖托盘 —— `work2api.exe serve` 直接可跑。
+- 托盘**不是 Windows 服务**（没有注册到 SCM），只是个普通 GUI 进程，靠登录启动项拉起。
+- 两者之间**没有 IPC**：没有 socket、管道或健康检查。托盘靠**进程名** `work2api.exe`
+  判断服务在不在跑，用 `CreateProcessW` 拉起、按进程名结束。
+
+开机自启走 `tools/start-work2api.vbs`（只起托盘，服务由托盘自己拉起来）。部署方式是把
+该文件复制到 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`。
+**该脚本必须是 CRLF 行尾** —— 裸 LF 下 WScript 是静默失效，不报错也不启动，见 `.gitattributes`。
+
+### 版本号与发布包
+
+```bash
+python tools/make-release.py
+```
+
+产出 `dist/release/work2api-<日期>-<短rev>-windows-amd64.zip`，内含两个 exe、配置样例、
+本 README、开机脚本，外加 `BUILD.txt`（构建信息）与 `SHA256SUMS`（校验和）。
+工作区不干净时版本号会带 `-dirty` 后缀，提醒这不是正式发布。
+
+版本号由构建时 `-X main.version=` 注入，`work2api.exe version` 可打印；托盘没有控制台，
+版本号写进 `tray.log`。**即使忘了注入**（显示 `dev`），`go version -m <exe>` 仍能读回
+构建时的 commit —— 两个来源都留着，不二选一。
+
+---
+
 ## 两个核心能力
 
 ### 1. 国内版 / 国际版区分

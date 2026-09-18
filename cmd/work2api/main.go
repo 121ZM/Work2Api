@@ -27,6 +27,14 @@ import (
 	"work2api/internal/region"
 )
 
+// version 由构建时注入：-ldflags "-X main.version=<ver>"，未注入时为 dev。
+//
+// 用注入而不是写死在源码里，是为了让「源码是什么版本」和「二进制是什么版本」
+// 只有一个真相来源 —— 打包脚本把 git rev 与日期拼成版本号塞进来。
+// 即便忘了注入，`go version -m work2api.exe` 仍能读回 vcs.revision，
+// 所以这里不是唯一的溯源手段，只是给人看的那一个。
+var version = "dev"
+
 func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
@@ -35,6 +43,9 @@ func main() {
 			os.Exit(cmdLogin(args[1:]))
 		case "serve", "run":
 			os.Exit(cmdServe(args[1:]))
+		case "version", "-v", "--version":
+			printVersion()
+			return
 		case "help", "-h", "--help":
 			usage()
 			return
@@ -43,13 +54,19 @@ func main() {
 	os.Exit(cmdServe(args))
 }
 
+func printVersion() {
+	fmt.Printf("work2api %s\n", version)
+	fmt.Println("完整构建信息（含 commit）: go version -m <本程序>")
+}
+
 func usage() {
 	fmt.Fprint(os.Stderr, `work2api —— WorkBuddy / TRAE SOLO 反代为 OpenAI 兼容接口
 
 用法：
-  work2api serve  [-config config.json]                        启动反代服务（默认）
-  work2api login  -kind <workbuddy|trae> -region <cn|global>   交互式登录新账号
-                  [-config config.json] [-timeout 5m]
+  work2api serve   [-config config.json]                        启动反代服务（默认）
+  work2api login   -kind <workbuddy|trae> -region <cn|global>   交互式登录新账号
+                   [-config config.json] [-timeout 5m]
+  work2api version                                              打印版本号
 
 环境变量覆盖：W2A_LISTEN / W2A_API_KEY / W2A_AUTH_DIR / W2A_STATE_FILE /
               W2A_HARD_CREDIT / W2A_SOFT_RATE / W2A_ERR_THRESHOLD /

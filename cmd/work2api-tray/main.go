@@ -221,12 +221,18 @@ type iconInfo struct {
 
 // ---------------- 入口 ----------------
 
+// version 由构建时注入：-ldflags "-X main.version=<ver>"，未注入时为 dev。
+//
+// 托盘是 GUI 程序、没有控制台可打印，所以版本号落到 tray.log ——
+// 排查「托盘里挂的到底是哪个构建」时，它是唯一的入口。
+var version = "dev"
+
 func main() {
 	// 消息循环必须固定在同一个 OS 线程上，否则 GetMessage 会立刻返回 -1。
 	runtime.LockOSThread()
 
 	initLog()
-	logf("托盘启动，exe=%s", exePath())
+	logf("托盘启动，exe=%s，版本=%s", exePath(), version)
 
 	// 单实例：双击两次不应该出现两个托盘图标。
 	mutexName := utf16p("Work2ApiTray.SingleInstance")
