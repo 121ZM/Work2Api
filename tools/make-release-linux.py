@@ -276,7 +276,7 @@ CGO_ENABLED=0 静态链接（不依赖 glibc 版本）、无 Windows 专属依�
         if not lone:
             sys.exit("%s 没有换行符" % fn)
 
-    # 版本自检：本机跑不了 ELF，改用两条静态证据（见文件头 4）。
+    # 版本自检：本机跑不了 ELF，改用静态证据（见文件头 4）。
     bin_path = os.path.join(bin_dir, TARGETS[0][1])
     blob = open(bin_path, "rb").read()
     if ver.encode() not in blob:
@@ -288,11 +288,23 @@ CGO_ENABLED=0 静态链接（不依赖 glibc 版本）、无 Windows 专属依�
     if len(blob) < 20 or int.from_bytes(blob[18:20], "little") != 0x3E:
         sys.exit("%s 不是 x86-64 的 ELF" % TARGETS[0][1])
 
+    # 静态链接：直接读 ELF 程序头里有没有 PT_INTERP(3)。
+    # **这是 ELF 事实，不是构建元数据** —— 有 PT_INTERP 就意味着得靠
+    # ld-linux.so 加载，于是绑上 glibc 版本，换台机器可能报
+    # `GLIBC_2.xx not found`。下面 buildinfo 里的 CGO_ENABLED=0 只是它的
+    # **原因**，是构建参数、可以被改整齐；程序头改不了。两条都留，以这条为准。
+    phoff = int.from_bytes(blob[32:40], "little")
+    phentsize = int.from_bytes(blob[54:56], "little")
+    phnum = int.from_bytes(blob[56:58], "little")
+    ptypes = [int.from_bytes(blob[phoff + i * phentsize:phoff + i * phentsize + 4],
+                             "little") for i in range(phnum)]
+    if 3 in ptypes:
+        sys.exit("ELF 含 PT_INTERP -> 动态链接，依赖外部 loader（会绑 glibc 版本）。"
+                 "检查 CGO_ENABLED 是不是真的传成了 0")
+
     buildinfo = run(["go", "version", "-m", bin_path])
     if rev_full not in buildinfo:
         sys.exit("溯源失败：go version -m 里读不到 commit %s\n%s" % (rev_full, buildinfo))
-    # 静态链接判据：CGO_ENABLED=0 的产物 buildinfo 里应带 CGO_ENABLED=0。
-    # 这条比「有没有 PT_INTERP」更直接 —— 后者要解析 ELF 程序头。
     if "CGO_ENABLED=0" not in buildinfo:
         sys.exit("构建信息里没有 CGO_ENABLED=0，静态链接的前提不成立\n%s" % buildinfo)
 
@@ -365,7 +377,7 @@ CGO_ENABLED=0 静态链接（不依赖 glibc 版本）、无 Windows 专属依�
     print("  目标平台     : linux/amd64（ELF 头校验通过，x86-64）")
     print("  版本注入     : 二进制字节里含 %s" % ver)
     print("  溯源         : go version -m → vcs.revision=%s" % rev)
-    print("  静态链接     : CGO_ENABLED=0（不绑 glibc 版本）")
+    print("  静态链接     : 无 PT_INTERP（ELF 程序头实测）+ CGO_ENABLED=0")
     print("  权限位       : bin/%s = 0755（解压即可执行）" % TARGETS[0][1])
     print("  行尾         : SHA256SUMS / BUILD.txt 纯 LF（sha256sum -c 可用）")
     print("  压缩包完整性 : 成员齐全，解压后逐字节一致")
