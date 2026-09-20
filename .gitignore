@@ -19,6 +19,10 @@ dist/
 # 临时文件（原子写的中间态）
 *.tmp
 
+# Python 字节码缓存 —— 跑 `python -m py_compile tools/*.py` 或 import 时会生成，
+# 不忽略的话工作区会莫名其妙变脏，打包时被标成 -dirty。
+__pycache__/
+
 # 本地工作数据（助手工作日志 / 临时目录），含本机路径，不入库
 .workbuddy-ai/
 
