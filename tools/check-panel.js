@@ -37,6 +37,7 @@ const dynamic = new Set([
   'actCheckin', 'actRefresh', 'actModels', 'btnLogin', 'btnRefresh', 'mq',
   'authUrl', 'openBtn', 'copyBtn', 'cancelBtn', 'mask', 'loginStatus',
   'bannerHost', // JS 启动时 createElement 后插入
+  'keyInput', 'keySave', // 远程访问时由 renderBanner 在 #bannerHost 内动态生成
 ]);
 const missing = [...jsIds].filter((id) => !htmlIds.has(id) && !dynamic.has(id));
 if (missing.length) bad('JS 引用了未定义的 id: ' + missing.join(', '));
@@ -74,9 +75,18 @@ else {
   else bad(`占位符 ${ph} 在 index.html 中出现 ${hits} 次，期望 1 次`);
 }
 
-// ── 7. 面板不应再出现手填 Key 的输入框 ──
-if (/\bid="key"/.test(html)) bad('index.html 仍有 id="key" 输入框（已改为服务端注入）');
-else ok('面板无手填 API Key 输入框');
+// ── 7. 手填 Key 只能是回退，服务端注入必须仍是主路径 ──
+// 历史：面板曾经只能手填（侧栏 id="key"），后来改成服务端注入；2026-09-22 起
+// 远程访问（局域网 / EasyTier）需要手填能力，于是加回 —— 但入口挪进了 #bannerHost，
+// 且必须「注入优先」。这条断言守的就是那个顺序：反过来的话本机访问也要抄 Key，是倒退。
+if (/\bid="key"/.test(html)) bad('侧栏又出现了 id="key" 手填框（远程入口应在 #bannerHost 内）');
+else ok('侧栏无手填 API Key 输入框');
+if (/\bid="keyInput"/.test(html)) ok('面板有远程手填 Key 入口（#keyInput）');
+else bad('面板缺少远程手填 Key 入口（#keyInput）');
+const gkFn = html.match(/function getKey\(\)\{[\s\S]*?\n  \}/);
+if (!gkFn) bad('找不到 getKey() 定义');
+else if (/if\(W2A_KEY\)\s*return\s+W2A_KEY;/.test(gkFn[0])) ok('getKey() 注入优先，手填仅作回退');
+else bad('getKey() 未优先返回服务端注入的 Key —— 会退化成必须手填');
 
 console.log(fail ? `\n== ${fail} 项失败 ==` : '\n== 全部通过 ==');
 process.exit(fail ? 1 : 0);

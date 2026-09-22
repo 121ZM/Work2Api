@@ -381,6 +381,10 @@ code,pre,.mono{font-family:var(--font-mono)}
   // 填错只会得到一个「读不到数据」的空壳。非本机访问时这里会被替换成空串。
   var W2A_KEY = __W2A_KEY_EXPR__;
   var THEME_STORE = 'work2api.theme';
+  // 远程访问（服务端不注入）时 Key 由用户手填一次，存在这里，下次打开免填。
+  var KEY_STORE = 'work2api.apikey';
+  // 远程访问时「手填的 Key 是否已被服务端接受」—— 决定提示条收不收起来。
+  var keyOK = false;
 
   /* ══════ 图标（lucide 同款路径）══════ */
   var I = {
@@ -421,8 +425,13 @@ code,pre,.mono{font-family:var(--font-mono)}
   }
 
   /* ══════ API ══════ */
-  // 服务端未注入（非本机访问）时 W2A_KEY 是空串，这里统一成「没有 Key」。
-  function getKey(){ return W2A_KEY || ''; }
+  // 注入值优先 —— 本机访问不需要用户做任何事。
+  // 远程访问时 W2A_KEY 是空串，回退到用户手填（存 localStorage）的 Key。
+  // 顺序不能反：反过来的话本机访问也要抄 Key，是倒退。
+  function getKey(){
+    if(W2A_KEY) return W2A_KEY;
+    try{ return localStorage.getItem(KEY_STORE) || ''; }catch(e){ return ''; }
+  }
 
   function api(path, opts){
     opts = opts || {};
@@ -1144,13 +1153,36 @@ code,pre,.mono{font-family:var(--font-mono)}
   function renderBanner(){
     var host = $('bannerHost');
     if(!host) return;
-    if(getKey()){ host.innerHTML = ''; return; }
+    // 本机访问：注入值在，提示条无用武之地。
+    if(W2A_KEY){ host.innerHTML = ''; return; }
+    // 远程访问但手填的 Key 已被服务端接受：收起提示。
+    if(keyOK){ host.innerHTML = ''; return; }
+    var saved = getKey();
     host.innerHTML = '<div class="card warncard" style="margin-bottom:20px"><div class="cc pad" ' +
       'style="display:flex;gap:10px;align-items:flex-start;font-size:12.5px;line-height:1.65;' +
-      'color:hsl(var(--amber-700))">' + '<span style="flex:none;margin-top:1px">' + ic('alert', 15) + '</span>' +
-      '<div><b>面板没有拿到 API Key。</b>Key 由服务端在返回本页面时注入，' +
-      '且<b>只对来自本机的请求</b>注入 —— 如果你是通过局域网或公网地址打开的，' +
-      '请改从服务器本机访问 <span class="mono-sm">http://127.0.0.1:7865</span>。</div></div></div>';
+      'color:hsl(var(--amber-700))">' + '<span style="flex:none;margin-top:1px">' + ic('key', 15) + '</span>' +
+      '<div style="flex:1;min-width:0"><b>远程访问：需要手填一次 API Key。</b><br>' +
+      'Key 由服务端注入，且<b>只对来自本机的请求</b>注入，远程打开的页面拿不到。' +
+      'Key 在服务器的 <span class="mono-sm">config.json</span> 里，' +
+      '也可在服务器本机打开 <span class="mono-sm">http://127.0.0.1:7865</span> 从「接入」页复制。' +
+      '<div class="urlrow"><input id="keyInput" type="password" autocomplete="off" ' +
+      'placeholder="w2a_…" value="' + esc(saved) + '">' +
+      '<button class="btn sm" id="keySave">' + (saved ? '重新连接' : '保存并连接') + '</button></div>' +
+      (saved ? '<div style="margin-top:8px;font-size:11.5px;color:hsl(var(--destructive))">' +
+        '已保存的 Key 被服务端拒绝（401），请核对后重填。</div>' : '') +
+      '</div></div></div>';
+    var inp = $('keyInput'), btn = $('keySave');
+    var save = function(){
+      var v = String(inp.value || '').trim();
+      try{
+        if(v) localStorage.setItem(KEY_STORE, v);
+        else localStorage.removeItem(KEY_STORE);
+      }catch(e){}
+      toast(v ? '已保存 Key，正在重新连接…' : '已清除保存的 Key', v ? 'ok' : 'err');
+      refresh();
+    };
+    btn.onclick = save;
+    inp.onkeydown = function(e){ if(e.key === 'Enter'){ e.preventDefault(); save(); } };
   }
 
   /* ══════ 数据 ══════ */
@@ -1168,18 +1200,26 @@ code,pre,.mono{font-family:var(--font-mono)}
   function refresh(){
     return api('/api/state').then(function(j){
       state = j;
+      keyOK = true;
       renderNav(); render();
     }).catch(function(e){
       if(e.status === 401){
         state = null;
+        keyOK = false;
         renderNav();
+        // 两种 401 要分开讲：本机是「注入的 Key 与服务端配置不一致」，
+        // 远程是「手填的 Key 不对」—— 混成一句会把用户往错的方向支。
         $('view').innerHTML = '<header><h1 class="h1">总览</h1></header>' +
           '<div class="card warncard" style="margin-top:20px"><div class="cc pad" style="display:flex;' +
           'gap:10px;align-items:flex-start;font-size:13px;color:hsl(var(--amber-700))">' +
           '<span style="flex:none;margin-top:1px">' + ic('alert', 16) + '</span>' +
-          '<div><b>API Key 校验失败。</b><br>页面注入的 Key 与服务端当前配置不一致，' +
-          '通常是刚改过 <code>config.json</code> 的 <code>api_key</code> 而没重启服务。' +
-          '重启后刷新本页即可。</div></div></div>';
+          '<div><b>API Key 校验失败。</b><br>' +
+          (W2A_KEY
+            ? '页面注入的 Key 与服务端当前配置不一致，通常是刚改过 <code>config.json</code> 的 ' +
+              '<code>api_key</code> 而没重启服务。重启后刷新本页即可。'
+            : '远程访问需要手填 Key。请在上方输入框里填入服务器 <code>config.json</code> 中的 ' +
+              '<code>api_key</code>，或改从服务器本机访问。') +
+          '</div></div></div>';
         renderBanner();
       } else {
         toast('读取状态失败：' + e.message, 'err');

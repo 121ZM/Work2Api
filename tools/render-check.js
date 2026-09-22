@@ -115,8 +115,13 @@ let browser = null;
   assert(logoBg === 'rgb(124, 59, 237)', '主色为紫罗兰 #7c3bed（与 WorkNiuMa 一致）', logoBg);
 
   // ── API Key：服务端注入链路 ──
+  // 2026-09-22 起面板支持远程手填 Key，入口是 #bannerHost 内的 #keyInput。
+  // 本页是**回环访问**（BASE 默认 127.0.0.1），注入值必然存在，那个入口不该出现 ——
+  // 这条断言守的就是「注入优先」：反了的话本机访问也要用户抄 Key。
   assert(await page.$('#key') === null, '侧栏没有手填 API Key 的输入框', '仍存在 #key');
   assert(await page.$('.sb-field') === null, '侧栏没有残留的 .sb-field 容器');
+  assert(await page.$('#keyInput') === null,
+    '本机访问时不显示远程手填 Key 入口（注入优先）', '出现了 #keyInput');
 
   // W2A_KEY 在 IIFE 内、不是全局变量，所以从服务端返回的 HTML 原文里核对注入结果。
   const servedHTML = await page.content();
