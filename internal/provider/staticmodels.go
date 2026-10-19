@@ -89,19 +89,59 @@ var workBuddyStaticModels = map[Channel][]ModelInfo{
 	},
 	// Global 表经过**逐模型实测**筛选（见文件头「global 表实测结论」）：
 	// 只保留在该 region 真实账号上返回 200 的模型，以及仅因限流（429）未定论的 glm-5.0。
+	//
+	// 2026-10-16 全量重测（模型接口仍 500，改为逐个真实调用 + 候选名爆破）：
+	// 原 11 个全部可调；另发现 20 个静态表漏掉的新模型，现共 31 个。
+	// 本轮剔除 deep-model（11102，服务端已移除）。
+	//
+	// 候选名爆破发现的模型，按项目惯例（cn 表「宁可多暴露也不要少暴露」）保留：
+	//   - glm-5.0 / deepseek-v4.1-flash：429 / 6004 限流，模型存在
+	//   - deepseek-v3：500 / 11134「model provider temporarily unavailable」，模型存在
+	//   - gpt-6.1-sol：400 / 11158「not allowed for user type [personal_free_user]」，
+	//     服务端已注册，换付费账号可能可用
 	{Kind: WorkBuddy, Region: "global"}: {
+		// —— 产品档位别名（抽象层，非具体模型）——
 		{ID: "default-model", Name: "Default", ContextWindow: 176000, MaxTokens: 24000},
 		{ID: "fast-model", Name: "Fast", ContextWindow: 200000, MaxTokens: 32000},
 		{ID: "balanced-model", Name: "Balanced", ContextWindow: 256000, MaxTokens: 32000},
 		{ID: "primary-model", Name: "Primary", ContextWindow: 272000, MaxTokens: 72000},
-		{ID: "deep-model", Name: "Deep", ContextWindow: 176000, MaxTokens: 24000},
-		{ID: "gpt-5.5", Name: "GPT-5.5", ContextWindow: 1000000, MaxTokens: 72000},
-		{ID: "gpt-5.4", Name: "GPT-5.4", ContextWindow: 272000, MaxTokens: 128000},
+		{ID: "auto", Name: "Auto"},
+
+		// —— GLM 家族（glm-5.0 仅 429 限流）——
+		{ID: "glm-5.0", Name: "GLM-5.0", ContextWindow: 200000, MaxTokens: 48000},
+		{ID: "glm-5.1", Name: "GLM-5.1"},
+		{ID: "glm-5.2", Name: "GLM-5.2"},
+		{ID: "glm-5.3", Name: "GLM-5.3"},
+		{ID: "glm-5.3-flash", Name: "GLM-5.3-Flash"},
+		{ID: "glm-5v-turbo", Name: "GLM-5v-Turbo"},
+
+		// —— GPT 家族（gpt-6.1-sol 仅免费账号不允许）——
 		{ID: "gpt-5.3-codex", Name: "GPT-5.3-Codex", ContextWindow: 272000, MaxTokens: 128000},
+		{ID: "gpt-5.4", Name: "GPT-5.4", ContextWindow: 272000, MaxTokens: 128000},
+		{ID: "gpt-5.5", Name: "GPT-5.5", ContextWindow: 1000000, MaxTokens: 72000},
+		{ID: "gpt-6-luna", Name: "GPT-6-Luna"},
+		{ID: "gpt-6-sol", Name: "GPT-6-Sol"},
+		{ID: "gpt-6.1-sol", Name: "GPT-6.1-Sol"},
+
+		// —— Gemini 家族 ——
 		{ID: "gemini-3.1-pro", Name: "Gemini-3.1-Pro", ContextWindow: 400000, MaxTokens: 64000},
 		{ID: "gemini-3.5-flash", Name: "Gemini-3.5-Flash", ContextWindow: 1000000, MaxTokens: 65536},
-		{ID: "glm-5.0", Name: "GLM-5.0", ContextWindow: 200000, MaxTokens: 48000},
+
+		// —— Kimi 家族 ——
 		{ID: "kimi-k2.5", Name: "Kimi-K2.5", ContextWindow: 164000, MaxTokens: 32000},
+		{ID: "kimi-k2.6", Name: "Kimi-K2.6"},
+		{ID: "kimi-k2.7", Name: "Kimi-K2.7"},
+		{ID: "kimi-k2.8-preview", Name: "Kimi-K2.8-Preview"},
+		{ID: "kimi-k3", Name: "Kimi-K3"},
+
+		// —— 其他（deepseek-v3 仅 provider 暂不可用、deepseek-v4.1-flash 仅 429）——
+		{ID: "hy3", Name: "Hy3"},
+		{ID: "hy4-preview", Name: "Hy4 preview"},
+		{ID: "minimax-m3", Name: "MiniMax-M3"},
+		{ID: "space-bunny", Name: "Space Bunny"},
+		{ID: "step-5-preview", Name: "Step-5-Preview"},
+		{ID: "deepseek-v3", Name: "DeepSeek-V3"},
+		{ID: "deepseek-v4.1-flash", Name: "DeepSeek-V4.1-Flash"},
 	},
 }
 

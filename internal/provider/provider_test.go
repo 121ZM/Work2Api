@@ -180,6 +180,15 @@ func TestWorkBuddyGlobalStaticModelsAreCallable(t *testing.T) {
 		"gemini-2.5-pro",   // 别名指向 gemini-2.5-pro-us-central1
 		"gemini-2.5-flash", // 别名指向 gemini-2.5-flash-us-central1
 		"deepseek-v3-2-volc",
+		"deep-model", // 2026-10-16 重测：11102，服务端已移除
+		// 2026-10-16 候选名爆破确认不存在的（同族其他版本也不在表里）：
+		"gpt-5.6", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gemini-3.6-pro",
+		"gemini-3.5-pro", "gemini-3.0-pro", "gemini-3.1-flash",
+		"deepseek-v4-pro", "deepseek-v4", "deepseek-v4.1",
+		"claude-4", "claude-3-7-sonnet", "space-bunny-lite",
+		"mimo-v2.6-pro", "mimo-v2.6-flash", "kimi-k3-1", "minimax-m2.7",
+		"gpt-4.1", "gpt-4o", "o3", "o4-mini", "default", "premium-model",
+		"lite-model", "mini-model", "pro-model", "expert-model",
 	}
 	for _, id := range absent {
 		if have[id] {
@@ -187,20 +196,34 @@ func TestWorkBuddyGlobalStaticModelsAreCallable(t *testing.T) {
 		}
 	}
 
-	// 实测返回 200（或模型特有的 429），必须保留。
+	// 实测可调用（200 / 429 / 11134 / 11158 均可证明服务端已注册），必须保留。
+	//
+	// 2026-10-16 全量重测：原 11 个 + 候选名爆破发现的 20 个 = 31 个。
+	// 原静态表漏掉的新模型（glm-5.3、step-5-preview、gpt-6-luna 等）都是
+	// 9 月 17 之后上游新增的 —— 表不更新，客户端就选不到新模型。
 	present := []string{
-		"default-model", "fast-model", "balanced-model", "primary-model",
-		"deep-model", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex",
-		"gemini-3.1-pro", "gemini-3.5-flash", "kimi-k2.5", "glm-5.0",
+		// 产品档位别名
+		"default-model", "fast-model", "balanced-model", "primary-model", "auto",
+		// GLM 家族（glm-5.0 仅 429 限流）
+		"glm-5.0", "glm-5.1", "glm-5.2", "glm-5.3", "glm-5.3-flash", "glm-5v-turbo",
+		// GPT 家族（gpt-6.1-sol 仅免费账号不允许 11158）
+		"gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol",
+		// Gemini 家族
+		"gemini-3.1-pro", "gemini-3.5-flash",
+		// Kimi 家族
+		"kimi-k2.5", "kimi-k2.6", "kimi-k2.7", "kimi-k2.8-preview", "kimi-k3",
+		// 其他（deepseek-v3 仅 500/11134 provider 暂不可用、deepseek-v4.1-flash 仅 429/6004）
+		"hy3", "hy4-preview", "minimax-m3", "space-bunny", "step-5-preview",
+		"deepseek-v3", "deepseek-v4.1-flash",
 	}
 	for _, id := range present {
 		if !have[id] {
-			t.Errorf("global 静态表缺了已实测可用的模型 %q", id)
+			t.Errorf("global 静态表缺了已实测存在的模型 %q", id)
 		}
 	}
 
-	if len(list) != 12 {
-		t.Errorf("global 静态表 %d 个，期望 12（11 个实测 200 + glm-5.0）", len(list))
+	if len(list) != 31 {
+		t.Errorf("global 静态表 %d 个，期望 31（11 个原表 + 20 个 2026-10-16 爆破发现）", len(list))
 	}
 }
 
