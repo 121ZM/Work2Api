@@ -35,6 +35,7 @@ func (f *fakeUpstream) DailyCheckin(*auth.Auth) error {
 	return f.checkinErr
 }
 func (f *fakeUpstream) Classify(int, string) provider.ErrKind { return provider.ErrNone }
+func (f *fakeUpstream) IsTransientBlock(string) bool          { return false }
 func (f *fakeUpstream) Stream(http.ResponseWriter, io.Reader) error {
 	return nil
 }

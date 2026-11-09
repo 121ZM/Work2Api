@@ -545,6 +545,11 @@ func (c *Client) UserResourceDetail(a *auth.Auth) (int64, []provider.ResourceIte
 // Classify 实现 provider.Upstream。
 func (c *Client) Classify(status int, body string) provider.ErrKind { return Classify(status, body) }
 
+// IsTransientBlock 实现 provider.Upstream。
+//
+// TRAE 上游没有 WorkBuddy 的 11128 渠道风控，恒返回 false。
+func (c *Client) IsTransientBlock(string) bool { return false }
+
 // Stream 实现 provider.Upstream（SOLO 事件流 → OpenAI SSE）。
 func (c *Client) Stream(w http.ResponseWriter, r io.Reader) error { return Stream(w, r) }
 

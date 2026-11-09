@@ -32,6 +32,16 @@ import (
 const (
 	maxBodyBytes = 8 << 20 // 8MB
 	maxAttempts  = 4       // 单次请求最多尝试的账号数
+	// maxBlockRetries 11128 瞬时拦截的最大重发次数。
+	//
+	// 实测命中率个位数百分比且重发可恢复，重发 3 次后仍被拦的概率极低。
+	// 这个预算**不占用** maxAttempts —— 重发用的是同一个账号，
+	// 与「换账号」是两件事，混在一起会让换号机会被饿死。
+	maxBlockRetries = 3
+	// blockRetryDelay 两次重发之间的等待。
+	//
+	// 给上游风控窗口一点时间，同时不把客户端拖到超时。
+	blockRetryDelay = 300 * time.Millisecond
 	// refreshSkew token 剩余有效期低于此值时提前刷新。
 	refreshSkew = 10 * time.Minute
 	// stickyMaxReqs 同一账号连续成功多少次后主动轮换（提升上游缓存命中，又不至于长期压一个号）。
@@ -229,6 +239,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var lastMsg string
 	var lastKind provider.ErrKind
+	blockRetries := 0
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		acct := h.pick(rt)
 		if acct == nil {
@@ -254,12 +265,24 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			log.Printf("chat channel=%s uid=%s attempt=%d upstream_status=%d kind=%s",
 				ch, acct.UID, attempt+1, status, kind)
 
-			// 请求形态类错误（如 code=11128 渠道校验、code=11101 tool_choice 类型错）：
-			// 换账号也是同一个结果，既不该重试，也不该把账号拖进冷却 —— 直接透传给客户端。
+			// code=11128「Illegal API invocation from an unapproved channel」是
+			// **概率性风控拦截**，不是请求写错了：实测 200 次同请求只命中个位数，
+			// 且上游 displayMsg 自己写着 "Request blocked. Please send it again"。
 			//
-			// 11128 的定性见 upstream.payload 的 sanitizeIdentity 注释：它是
-			// **请求体里的客户端自述身份**没过渠道校验，不是账号问题。
-			// 参考实现 workbuddy2api-hub 的排障文档明确禁止靠换号「消掉」它。
+			// 处理方式因此是「原账号重发」：
+			//   - 不换账号：同一条被拦的 body 换号仍会被拦，只会白耗额度
+			//   - 不记账号错误：这不是账号的毛病，记进去会把好号拖进冷却
+			//   - 复用同一个 convID：官方 IDE 重发沿用同一会话身份
+			if rt.Upstream.IsTransientBlock(string(respBody)) && blockRetries < maxBlockRetries {
+				blockRetries++
+				log.Printf("chat channel=%s uid=%s 11128 瞬时拦截，重发第 %d/%d 次（不记账号错误）",
+					ch, acct.UID, blockRetries, maxBlockRetries)
+				time.Sleep(blockRetryDelay)
+				continue
+			}
+
+			// 其余请求形态类错误（如 code=11101 tool_choice 类型错）：
+			// 换账号也是同一个结果，既不该重试，也不该把账号拖进冷却 —— 直接透传。
 			if kind == provider.ErrClient {
 				h.clearSticky(ch)
 				writeError(w, status, upstreamMsg(respBody, status), "invalid_request_error")

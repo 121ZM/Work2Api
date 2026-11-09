@@ -554,6 +554,9 @@ func isAlreadyCheckedIn(err error) bool {
 // Classify 实现 provider.Upstream。
 func (c *Client) Classify(status int, body string) provider.ErrKind { return Classify(status, body) }
 
+// IsTransientBlock 实现 provider.Upstream。
+func (c *Client) IsTransientBlock(body string) bool { return IsTransientBlock(body) }
+
 // Stream 实现 provider.Upstream（上游已是 OpenAI SSE，直接透传）。
 func (c *Client) Stream(w http.ResponseWriter, r io.Reader) error { return Stream(w, r) }
 

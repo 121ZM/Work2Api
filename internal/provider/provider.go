@@ -221,6 +221,9 @@ type Upstream interface {
 	// DailyCheckin 执行签到。无签到体系的版本返回 ErrCheckinUnsupported。
 	DailyCheckin(a *auth.Auth) error
 	Classify(status int, body string) ErrKind
+	// IsTransientBlock 报告该响应是否为「重发即可恢复」的瞬时拦截
+	// （WorkBuddy 的 code=11128）。这类错误既不该判死请求，也不该记账号错误。
+	IsTransientBlock(body string) bool
 	// Stream 把上游 SSE 流转换 / 透传到下游 ResponseWriter。
 	Stream(w http.ResponseWriter, r io.Reader) error
 	// Aggregate 把上游 SSE 流聚合成一个 OpenAI 非流式响应对象。
