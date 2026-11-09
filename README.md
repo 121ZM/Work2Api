@@ -167,6 +167,25 @@ region.CheckinSupported(kind, region)   // 仅 cn 返回 true
 - **持久化在 `data/state-<kind>-<region>.json`**，重启后保持。这条不变量锁在
   `TestDisabledSurvivesStateRoundTrip`（变异验证过：拿掉持久化该测试立刻变红）。
 
+### 删除账号：连同本地凭证一起清掉
+
+「移出号池」只是可逆的开关，凭证文件还在，重启后账号照旧出现。会话失效
+（`session_dead`）的死号真正需要的是删除 —— 面板账号行右侧的垃圾桶图标走
+`POST /api/account/delete`（`{ "channel", "uid" }`），会：
+
+1. 删掉 `auths/` 下属于该账号的凭证文件；
+2. 把条目从号池移除并落盘运行态。
+
+**先删文件再出池**：文件删失败就中止，否则池里没了、磁盘上还留着，重启后账号
+「复活」，用户会以为删除没生效。
+
+同一个账号可能在 `auths/` 下有多份文件（登录写一份、手工导入又放一份）。
+删除时会再扫一遍目录，把「解析后 kind + region + UID 全等」的文件一并删掉；
+判定依据是解析结果而非文件名通配，不会误删其它账号。这条不变量锁在
+`TestSiblingCredFilesFindsSameAccount` / `TestSiblingCredFilesIgnoresOtherRegion`。
+
+删除不可撤销，面板会弹二次确认；要再用这个账号需要重新登录。
+
 ### 选号顺序（`pool.better`，三段）
 
 跳过已停用与冷却中的账号后：
@@ -257,6 +276,7 @@ POST /api/account/checkin           立即签到（{ "channel": "workbuddy/cn" }
 POST /api/account/refresh           刷新 token + 积分（{ "channel": ..., "uid": ... } 可限定）
 POST /api/account/resource          查单账号积分明细 → { total, items[] }，每条含 expire_at
 POST /api/account/toggle            账号快关：{ "channel", "uid", "enabled" }，enabled 必填
+POST /api/account/delete            删除账号：{ "channel", "uid" }，连同 auths/ 下凭证文件一并删除
 POST /api/login/start               发起交互式登录 → { kind, region }
 GET  /api/login/poll                轮询登录状态 → { kind, region }
 POST /api/login/cancel              放弃在途登录
@@ -275,7 +295,7 @@ GET  /                              内嵌控制台面板（不鉴权）
 | 时机 | 触发 |
 |---|---|
 | 打开页面 | 启动时 `GET /api/state` 一次 |
-| 操作之后 | 签到 / 刷新 / 账号快关 / 登录成功，各自在完成后刷一次 |
+| 操作之后 | 签到 / 刷新 / 账号快关 / 删除账号 / 登录成功，各自在完成后刷一次 |
 | 手动 | 渠道页的「刷新状态」按钮、总览页的「刷新全部账号」 |
 | 切回页面 | `visibilitychange` 变可见时补一次，免得看到明显过期的数据 |
 

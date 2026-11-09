@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -291,6 +292,7 @@ func (a *App) attachAPI(mux *http.ServeMux, protect func(http.HandlerFunc) http.
 	mux.HandleFunc("POST /api/account/refresh", protect(a.apiRefresh))
 	mux.HandleFunc("POST /api/account/resource", protect(a.apiResource))
 	mux.HandleFunc("POST /api/account/toggle", protect(a.apiToggleAccount))
+	mux.HandleFunc("POST /api/account/delete", protect(a.apiDeleteAccount))
 	mux.HandleFunc("POST /api/login/start", protect(a.apiLoginStart))
 	mux.HandleFunc("GET /api/login/poll", protect(a.apiLoginPoll))
 	mux.HandleFunc("POST /api/login/cancel", protect(a.apiLoginCancel))
@@ -538,6 +540,123 @@ func (a *App) apiToggleAccount(w http.ResponseWriter, r *http.Request) {
 		"healthy": p.Healthy(),
 		"total":   p.Len(),
 	})
+}
+
+// apiDeleteAccount 从号池与磁盘上彻底删除一个账号。
+//
+// 与「移出号池」（apiToggleAccount）的区别：那个只是 disabled 标志，
+// 凭证文件还在、重启后账号照旧出现；这里是真删 —— 池内条目、运行态、
+// 以及 auths/ 下的凭证文件一起清掉，重启也不会回来。
+//
+// 为什么需要它：会话失效（session_dead）的账号在号池里只是被停用，
+// 既不能选号、点「刷新」还会报错要求重新登录；用户手里攒了一批这样的死号
+// 时，只能去 auths/ 目录手动删文件再重启服务 —— 面板上该有这条路。
+//
+// 凭证文件按 Auth.FilePath 精确删除，不做按 UID 通配的模糊匹配：
+// 删错账号等于丢凭证，宁可删不掉也不多删。
+func (a *App) apiDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Channel string `json:"channel"`
+		UID     string `json:"uid"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPI(w, http.StatusBadRequest, map[string]any{"error": "请求体解析失败: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.UID) == "" {
+		writeAPI(w, http.StatusBadRequest, map[string]any{"error": "缺少 uid"})
+		return
+	}
+	ch, ok := findChannel(req.Channel)
+	if !ok {
+		writeAPI(w, http.StatusBadRequest, map[string]any{"error": "未知渠道 " + req.Channel})
+		return
+	}
+	p := a.pools[ch]
+	if p == nil {
+		writeAPI(w, http.StatusServiceUnavailable, map[string]any{"error": "该渠道未装配"})
+		return
+	}
+	acct := p.Auth(req.UID)
+	if acct == nil {
+		writeAPI(w, http.StatusNotFound, map[string]any{"error": "账号不存在: " + req.UID})
+		return
+	}
+
+	// 先删文件再出池：文件删失败就中止，否则池里没了、磁盘上还留着，
+	// 下次启动账号又「复活」，用户会以为删除没生效。
+	//
+	// 不只删 Auth.FilePath：同一个账号在 auths/ 下可能有多份文件
+	// （登录写一份、手工导入又放一份，文件名不同但 UID + region 相同）。
+	// LoadDir 会全部加载进同一个池条目，只删其中一份的话重启就复活。
+	// 因此再扫一遍目录，把「解析后 kind + region + UID 都相同」的文件一并删掉 ——
+	// 判定依据是解析结果而非文件名通配，不会误伤别的账号。
+	removed := make([]string, 0, 1)
+	if fp := strings.TrimSpace(acct.FilePath); fp != "" {
+		removed = append(removed, fp)
+	}
+	removed = append(removed, siblingCredFiles(a.cfg.AuthDir, acct, removed)...)
+
+	for _, fp := range removed {
+		if err := os.Remove(fp); err != nil && !os.IsNotExist(err) {
+			writeAPI(w, http.StatusInternalServerError, map[string]any{
+				"error": "删除凭证文件失败: " + err.Error(), "path": fp})
+			return
+		}
+	}
+
+	p.Remove(req.UID)
+	a.saveAllStates()
+	log.Printf("账号已删除 channel=%s uid=%s files=%v", ch, req.UID, removed)
+	writeAPI(w, http.StatusOK, map[string]any{
+		"channel": ch.String(),
+		"uid":     req.UID,
+		"path":    strings.Join(removed, ", "),
+		"files":   removed,
+		"healthy": p.Healthy(),
+		"total":   p.Len(),
+	})
+}
+
+// siblingCredFiles 找出 authDir 下与 acct 属于同一账号的其它凭证文件。
+//
+// 判据是「解析出来的 kind + region + UID 全等」，不是文件名通配 ——
+// 文件名可以是任意合法 JSON 名（workbuddy*.json / trae*.json），
+// 按名字猜会误删别人的凭证。exclude 里已有的路径跳过。
+func siblingCredFiles(dir string, acct *auth.Auth, exclude []string) []string {
+	if strings.TrimSpace(dir) == "" || acct == nil {
+		return nil
+	}
+	skip := make(map[string]bool, len(exclude))
+	for _, p := range exclude {
+		skip[filepath.Clean(p)] = true
+	}
+	var out []string
+	for _, spec := range []struct {
+		glob string
+		kind string
+	}{
+		{"workbuddy*.json", auth.KindWorkBuddy},
+		{"trae*.json", auth.KindTrae},
+	} {
+		files, err := filepath.Glob(filepath.Join(dir, spec.glob))
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if skip[filepath.Clean(f)] {
+				continue
+			}
+			other, err := auth.LoadFile(f, spec.kind)
+			if err != nil {
+				continue
+			}
+			if other.UID == acct.UID && other.Kind == acct.Kind && other.Region == acct.Region {
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 // reloadAccounts 重新扫描 authDir，把新增账号加入对应池（幂等）。
