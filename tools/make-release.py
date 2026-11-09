@@ -272,14 +272,27 @@ certutil -hashfile <zip> SHA256       # Windows 上校验压缩包
     zip_path = os.path.join(OUT_DIR, name + ".zip")
     if os.path.exists(zip_path):
         os.remove(zip_path)
+    # 入包清单 = rel_files(stage) + SHA256SUMS 自身。
+    #
+    # rel_files 刻意排除 SHA256SUMS（清单不能包含自己的哈希），
+    # 但**打包时它必须进包** —— 早先这里直接用了 rel_files 的返回值，
+    # 于是每个包都缺 SHA256SUMS，而自检只复算 rel_files 里的项，
+    # 一路显示「校验和复算 6 项全部匹配」，看不出少了一个文件。
+    zip_entries = [(rel, p) for rel, p in rel_files(stage)]
+    zip_entries.append(("SHA256SUMS", sums_path))
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        for rel, p in rel_files(stage):
+        for rel, p in zip_entries:
             z.write(p, name + "/" + rel)
 
     # 自检 1：压缩包可读
     bad = zipfile.ZipFile(zip_path).testzip()
     if bad is not None:
         sys.exit("压缩包损坏：%s" % bad)
+
+    # 自检 1b：SHA256SUMS 必须在包里（上面那个坑的回归断言）
+    names = set(zipfile.ZipFile(zip_path).namelist())
+    if (name + "/SHA256SUMS") not in names:
+        sys.exit("压缩包缺少 SHA256SUMS —— 校验和文件必须随包发布")
 
     # 自检 2：版本号真的注进去了（不注入时是 dev，必须报出来）
     printed = run([os.path.join(bin_dir, "work2api.exe"), "version"])
@@ -288,14 +301,14 @@ certutil -hashfile <zip> SHA256       # Windows 上校验压缩包
 
     print()
     print("=== 包内容 ===")
-    for rel, p in rel_files(stage):
+    for rel, p in zip_entries:
         print("  %-26s %10d 字节" % (rel, os.path.getsize(p)))
     print()
     print("=== 自检 ===")
     print("  exe 自报版本 : %s" % printed.splitlines()[0])
     print("  包内布局     : exe 均在 %s\\ 下（包根无 exe）" % BIN_SUBDIR)
     print("  vbs          : %d CRLF / 0 裸 LF / 可执行行全 ASCII" % crlf)
-    print("  压缩包完整性 : OK")
+    print("  压缩包完整性 : OK（SHA256SUMS 已在包内）")
     print("  校验和复算   : %d 项全部匹配" % len(files))
     print()
     print("=== 产物 ===")
