@@ -184,6 +184,11 @@ type Config struct {
 
 	Upstream struct {
 		TimeoutSeconds int `json:"timeout_seconds"` // 默认 120
+		// DumpDir 非空时，把每次 chat 请求**清洗后真正发往上游的 body**
+		// 原样落盘到该目录。用于定位 11128 这类「body 侧身份指纹」问题 ——
+		// 只有看到真实出站内容才知道是哪一段被识别成未批准渠道。
+		// 生产环境留空（默认），避免把对话内容写到磁盘上。
+		DumpDir string `json:"dump_dir,omitempty"`
 	} `json:"upstream"`
 
 	// Regions 可选覆盖内置域名表（键：cn / global）。留空即用 region 包的内置表。

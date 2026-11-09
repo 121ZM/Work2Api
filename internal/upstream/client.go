@@ -14,6 +14,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -113,6 +115,9 @@ type Client struct {
 
 	// Overrides 可选覆盖内置域名表（键 "cn" / "global"）。
 	Overrides map[string]region.WorkBuddyHosts
+
+	// DumpDir 非空时把清洗后的出站 body 落盘（见 config.Upstream.DumpDir）。
+	DumpDir string
 }
 
 // New 生产默认值。配置连接池减少 TLS 握手。
@@ -239,6 +244,10 @@ func (c *Client) RefreshToken(a *auth.Auth) error {
 func (c *Client) ChatStream(a *auth.Auth, body []byte, convID string) (rc io.ReadCloser, status int, respBody []byte, err error) {
 	prepared := PrepareBody(body, a.Region)
 	model := ModelFromBody(prepared)
+	// 取证开关：W2A_DUMP_DIR 指向目录时，把**清洗后真正发往上游的 body**
+	// 原样落盘。11128 这类「body 侧身份指纹」问题只有看到真实出站内容
+	// 才能定位 —— 靠猜规则会反复漏。
+	dumpBody(c.DumpDir, prepared, model)
 	req, err := http.NewRequest(http.MethodPost, c.chatBase(a)+"/v2/chat/completions", bytes.NewReader(prepared))
 	if err != nil {
 		return nil, 0, nil, err
@@ -570,6 +579,30 @@ func newHex16() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
+}
+
+// dumpBody 把清洗后的出站 body 落盘（仅当 dir 非空）。
+//
+// 为什么需要它：11128 的判定依据是**请求体内容**，而请求体里哪一段
+// 被识别成「未批准渠道」只能靠对照真实出站内容来定位。日志里只记了
+// 上游的报错，看不到我们自己发了什么 —— 这是此前反复猜错规则的根因。
+//
+// 文件名带模型名与时间戳，便于把「哪次请求被拦」和「发了什么」对上。
+func dumpBody(dir string, body []byte, model string) {
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	safe := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' {
+			return '_'
+		}
+		return r
+	}, model)
+	name := fmt.Sprintf("%s-%s-%d.json", time.Now().Format("150405.000"), safe, time.Now().UnixNano()%100000)
+	_ = os.WriteFile(filepath.Join(dir, name), body, 0o600)
 }
 
 // briefBody 把上游错误响应压成一句可读的说明。

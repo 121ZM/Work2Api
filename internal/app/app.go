@@ -126,6 +126,7 @@ func newUpstream(ch provider.Channel, cfg *config.Config, timeout time.Duration)
 	case provider.WorkBuddy:
 		c := upstream.New(timeout)
 		c.Overrides = cfg.Regions.WorkBuddy
+		c.DumpDir = cfg.Upstream.DumpDir
 		return c
 	case provider.Trae:
 		c := traework.New(timeout)

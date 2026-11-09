@@ -72,11 +72,16 @@ var sanitizeIdentityTail = regexp.MustCompile(`(?i),?\s*` +
 //
 // 注意：Go 的 RE2 **不支持前瞻/后顾断言**（(?=...) 会 panic），
 // 所以句尾用「非贪婪到句号」而不是「句号且后面是空白」来表达。
+//
+// 句尾必须是 `\.(?:\s|$)`，不能是裸 `\.`：模型名 "deepseek-v4.1-flash"
+// 里的点会被当成句号，正则提前收尾，清洗出
+// "You are a helpful AI assistant.1-flash model." 这种残留
+// —— 实测过的真 bug，别改回去。
 var sanitizeIdentity = regexp.MustCompile(`(?i)You are\s+` +
 	`(?:an?\s+|the\s+)?(?:[\w.-]+\s+){0,3}?` +
 	`(?:agent|assistant|model|AI|LLM)?[\s,]*` +
 	`(?:powered by|built on|built by|created by|developed by|made by|trained by)` +
-	`[^\n]*?\.`)
+	`[^\n]*?\.(\s|$)`)
 
 // sanitizeBrandPhrases 已知会被当作「非批准渠道」的品牌自述片段。
 //
@@ -363,3 +368,5 @@ func normalizeToolChoice(obj map[string]any) {
 		delete(obj, "tool_choice")
 	}
 }
+
+
