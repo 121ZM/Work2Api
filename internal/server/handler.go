@@ -12,6 +12,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -220,6 +222,11 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	upstreamBody := rewriteModel(body, modelName)
 
+	// convID 是本轮请求的会话身份，用于官方 IDE 指纹与 B3 trace 链。
+	// 同一轮内的所有重试必须复用它 —— 换号重试若换会话 ID，
+	// 上游看到的是多个并发会话而非一次对话的一次重试。
+	convID := newConvID()
+
 	var lastMsg string
 	var lastKind provider.ErrKind
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -235,7 +242,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		rc, status, respBody, err := rt.Upstream.ChatStream(acct, upstreamBody)
+		rc, status, respBody, err := rt.Upstream.ChatStream(acct, upstreamBody, convID)
 		if err != nil {
 			rt.Pool.NoteError(acct, provider.ErrServer, err.Error())
 			lastMsg, lastKind = err.Error(), provider.ErrServer
@@ -247,9 +254,12 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			log.Printf("chat channel=%s uid=%s attempt=%d upstream_status=%d kind=%s",
 				ch, acct.UID, attempt+1, status, kind)
 
-			// 请求形态类错误（如 code=11128 "first message is not system prompt"、
-			// code=11101 tool_choice 类型错）：换账号也是同一个结果，
-			// 既不该重试，也不该把账号拖进冷却 —— 直接透传给客户端。
+			// 请求形态类错误（如 code=11128 渠道校验、code=11101 tool_choice 类型错）：
+			// 换账号也是同一个结果，既不该重试，也不该把账号拖进冷却 —— 直接透传给客户端。
+			//
+			// 11128 的定性见 upstream.payload 的 sanitizeIdentity 注释：它是
+			// **请求体里的客户端自述身份**没过渠道校验，不是账号问题。
+			// 参考实现 workbuddy2api-hub 的排障文档明确禁止靠换号「消掉」它。
 			if kind == provider.ErrClient {
 				h.clearSticky(ch)
 				writeError(w, status, upstreamMsg(respBody, status), "invalid_request_error")
@@ -287,6 +297,21 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusTooManyRequests
 	}
 	writeError(w, status, lastMsg, "api_error")
+}
+
+// newConvID 生成会话 ID（带连字符的 UUIDv4 形态）。
+//
+// 官方 IDE 的 x-conversation-id 就是这个形状；上游把它当作会话身份参与
+// 渠道校验与缓存命中，所以不能省，也不能每次重试都变。
+func newConvID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("conv-%d", time.Now().UnixNano())
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // 版本 4
+	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 变体
+	s := hex.EncodeToString(b[:])
+	return s[0:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:32]
 }
 
 // resolveChannel 解析模型名前缀。

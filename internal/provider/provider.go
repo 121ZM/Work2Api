@@ -213,7 +213,8 @@ type Upstream interface {
 	RefreshToken(a *auth.Auth) error
 	// ChatStream 发起对话，返回上游 SSE body 流（调用方负责 Close）。
 	// 非 2xx 时 rc 为 nil、respBody 为上游响应体、err 为 nil。
-	ChatStream(a *auth.Auth, body []byte) (rc io.ReadCloser, status int, respBody []byte, err error)
+	// convID 是会话身份，用于官方 IDE 指纹与 trace 链，同一会话多次请求须一致。
+	ChatStream(a *auth.Auth, body []byte, convID string) (rc io.ReadCloser, status int, respBody []byte, err error)
 	FetchModels(a *auth.Auth) ([]ModelInfo, error)
 	UserResource(a *auth.Auth) (int64, error)
 	UserResourceDetail(a *auth.Auth) (int64, []ResourceItem, error)

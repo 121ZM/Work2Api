@@ -175,7 +175,10 @@ func normalizeExpiresAt(v int64) int64 {
 }
 
 // ChatStream 发起对话并返回 SOLO 事件流（调用方负责 Close）。
-func (c *Client) ChatStream(a *auth.Auth, body []byte) (rc io.ReadCloser, status int, respBody []byte, err error) {
+//
+// convID 参数为接口一致性而保留：TRAE 上游不校验会话身份，
+// 也不使用 B3 trace 链，因此这里忽略它。
+func (c *Client) ChatStream(a *auth.Auth, body []byte, convID string) (rc io.ReadCloser, status int, respBody []byte, err error) {
 	req, err := http.NewRequest(http.MethodPost, c.agentBase(a)+EpChat, bytes.NewReader(PrepareBody(body)))
 	if err != nil {
 		return nil, 0, nil, err

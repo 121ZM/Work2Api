@@ -22,7 +22,7 @@ type fakeUpstream struct {
 }
 
 func (f *fakeUpstream) RefreshToken(*auth.Auth) error { return nil }
-func (f *fakeUpstream) ChatStream(*auth.Auth, []byte) (io.ReadCloser, int, []byte, error) {
+func (f *fakeUpstream) ChatStream(*auth.Auth, []byte, string) (io.ReadCloser, int, []byte, error) {
 	return nil, 0, nil, nil
 }
 func (f *fakeUpstream) FetchModels(*auth.Auth) ([]provider.ModelInfo, error) { return nil, nil }

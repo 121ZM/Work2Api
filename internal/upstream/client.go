@@ -7,6 +7,8 @@ package upstream
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,6 +47,26 @@ var hardMarkers = []string{
 }
 
 var sessionDeadMarkers = []string{"Offline user session not found", "12153"}
+
+// transientBlockCodes 上游「瞬时拦截」业务码：请求本身没毛病，重发即可。
+//
+// 11128 "Illegal API invocation from an unapproved channel" 的响应体里
+// 自带 displayMsg.en = "Request blocked. Please send it again"，并且
+// retry_policy.retry = false 只约束**上游自己**不要内部重试，
+// 不等于「调用方重发也没用」。实测该码是间歇性风控：同一账号同一请求体
+// 连续 40 次并发全部 200，历史日志里却偶发命中 —— 说明它是概率性拦截，
+// 不是请求形态错误。因此必须重试，而不是像普通 4xx 那样直接透传。
+var transientBlockCodes = []string{`"code":11128`}
+
+// IsTransientBlock 报告该响应是否为「重发可恢复」的瞬时拦截。
+func IsTransientBlock(body string) bool {
+	for _, c := range transientBlockCodes {
+		if strings.Contains(body, c) {
+			return true
+		}
+	}
+	return false
+}
 
 // Classify 按 HTTP 状态码 + body 判定错误类别。
 func Classify(status int, body string) ErrKind {
@@ -210,12 +232,18 @@ func (c *Client) RefreshToken(a *auth.Auth) error {
 // 非 2xx 时 rc 为 nil、respBody 为上游响应体、err 为 nil
 // （供调用方 Classify(status, string(body)) 后重试别的账号）；
 // 只有传输层失败才返回 err。
-func (c *Client) ChatStream(a *auth.Auth, body []byte) (rc io.ReadCloser, status int, respBody []byte, err error) {
-	req, err := http.NewRequest(http.MethodPost, c.chatBase(a)+"/v2/chat/completions", bytes.NewReader(PrepareBody(body, a.Region)))
+//
+// convID 是会话身份，用于官方 IDE 指纹的 x-conversation-id 与 B3 trace 链；
+// 同一会话的多次请求（含换模型重试）必须传同一个值，否则上游看到的是
+// 多个互不相干的调用。
+func (c *Client) ChatStream(a *auth.Auth, body []byte, convID string) (rc io.ReadCloser, status int, respBody []byte, err error) {
+	prepared := PrepareBody(body, a.Region)
+	model := ModelFromBody(prepared)
+	req, err := http.NewRequest(http.MethodPost, c.chatBase(a)+"/v2/chat/completions", bytes.NewReader(prepared))
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	chatHeaders(req, a, c.hosts(a))
+	chatHeaders(req, a, c.hosts(a), model, convID)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		log.Printf("chat_stream uid=%s: transport error: %v", a.UID, err)
@@ -529,6 +557,19 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// newHex32 / newHex16 生成 B3 trace 用的十六进制 ID（32 / 16 字符）。
+func newHex32() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+func newHex16() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // briefBody 把上游错误响应压成一句可读的说明。
