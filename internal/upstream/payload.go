@@ -39,65 +39,63 @@ const maxTools = 30
 // 用一句最中性的自述覆盖原句，既消除门户指纹，又不改变「你是助手」的语义。
 const sanitizeIdentityRepl = "You are a helpful AI assistant."
 
-// sanitizeIdentityTail 兜底规则：句中任意位置的「powered/built/created by X」。
+// ---- 上游渠道校验（code=11128）指纹清洗 ----
 //
-// sanitizeIdentity 只覆盖 "You are ... <谓词> ..." 这一种句式；实际 harness
-// 的 system prompt 常把身份写在从句里，例如：
+// 全部规则与取值对齐 ardeyouxipianyi/workbuddy2api-hub
+// （hub_wb_proxy.py:13285-13386），每条都有对方的实测依据。
 //
-//	"You are running inside X, an AI coding agent built on DeepSeek."
+// **顺序不能改**：GUI 描述句规则要认 `DeepSeek Harness` 全名，所以品牌缩减
+// 必须排在它后面；否则 GUI 规则永远匹配不到。
 //
-// 前半句被 sanitizeIdentity 换掉后，"built on DeepSeek" 仍留在句尾，
-// 依旧是可识别的渠道指纹。这条规则把「谓词 + 最多 40 字符 + 句号」整体抹掉。
-//
-// 作用域仍限制在 system / developer / assistant（见 sanitizeMessages），
-// 因此不会动用户的正文。
-var sanitizeIdentityTail = regexp.MustCompile(`(?i),?\s*` +
-	`(?:an?\s+)?(?:[\w.-]+\s+){0,4}?` +
-	`(?:powered by|built on|built by|created by|developed by|made by|trained by)` +
-	`\s+[\w.\- ]{1,40}?\.`)
+// 实测（2026-11-09，本仓库）：DSH 的 system prompt 里
+// `Tokens prefixed with @ are paths the user explicitly referenced.`
+// 与后一句连排即 100% 触发 11128；只把 `paths the user` 改成
+// `paths that the user` 后，7623 字的完整 system 从 4/4 被拦变为 0/4。
+// 匹配的是**整段连续文本**，不是单个词 —— 所以逐句删词是拆不出来的。
+var (
+	// reCodexIntro Codex 自述首段（它本身就是官方特征表里的指纹）。
+	reCodexIntro = regexp.MustCompile(
+		`(?i)You are a coding agent running in the Codex CLI(?: tool)?[^.\n]*\.`)
+	// reClaudeIntro Claude Code 自述首段。
+	reClaudeIntro = regexp.MustCompile(
+		`(?i)You are Claude Code,\s*Anthropic['’]s official CLI(?: tool)? for Claude(?: Code)?\.?`)
+	// reIdentity 通用身份句 "You are ... powered/built/created by ..."。
+	//
+	// 句尾必须是 `\.(\s|$)`，不能是裸 `\.`：模型名 "deepseek-v4.1-flash"
+	// 里的点会被当成句号，正则提前收尾，清洗出
+	// "You are a helpful AI assistant.1-flash model." 这种残留
+	// —— 实测过的真 bug，别改回去。尾部的空白用捕获组原样带回。
+	reIdentity = regexp.MustCompile(`(?i)You are\s+` +
+		`(?:an?\s+|the\s+)?(?:[\w.-]+\s+){0,3}?` +
+		`(?:agent|assistant|model|AI|LLM)?[\s,]*` +
+		`(?:powered by|built on|built by|created by|developed by|made by|trained by)` +
+		`[^\n]*?\.(\s|$)`)
+	// reDSHGUI DSH 的 Web GUI 描述句：只调句尾语序，一个词都不删。
+	reDSHGUI = regexp.MustCompile(`(?i)(You are interacting with the user through the ` +
+		`DeepSeek[ \t]+Harness[ \t]+Web[ \t]+GUI) whose URL the runtime context names\.`)
+	// reDSHFileRef 文件引用段：只补一个 that，打断整段连续匹配。
+	//
+	// 幂等性是天然的：替换后文本变成 "paths that the user"，不再匹配本正则。
+	reDSHFileRef = regexp.MustCompile(
+		`(?i)(Tokens prefixed with @ are paths )the user explicitly referenced\.`)
+	// reBrand 品牌词缩减。只认散文里的空格/制表符形式 ——
+	// `deepseek-harness`、`/opt/deepseek-harness/app` 这类路径与标识符保持原样。
+	reBrand = regexp.MustCompile(`(?i)DeepSeek[ \t]+Harness`)
+	// reHdr / reKV / reBareHdr 第三方 SDK 的计费头痕迹。
+	reHdr     = regexp.MustCompile(`(?i)x-anthropic-billing-header:[^;\r\n]*;?\s*`)
+	reKV      = regexp.MustCompile(`(?i)\bcc_[a-z0-9_]+=[^;\r\n]*;?\s*`)
+	reBareHdr = regexp.MustCompile(`(?i)x-anthropic-billing-header`)
+)
 
-// sanitizeIdentity 匹配「You are <修饰语> powered/built/created by ...」这类
-// 客户端自述句。
+// sanitizeRewrites 实测确认会触发 11128 的字面量，以及它们的替换文本。
 //
-// 实测依据（2026-11-09，来自 ardeyouxipianyi/workbuddy2api-hub 的
-// hub_wb_proxy.py:13341-13348）：上游把这类句子当**渠道指纹**，
-// 命中即 400 code=11128。典型被拦的自述：
-//
-//	"You are a helpful assistant powered by DeepSeek Harness."
-//	"You are a coding agent running in the Codex CLI"
-//	"You are Claude Code"
-//
-// 正则刻意写得宽：修饰语允许 0-3 个词、可选的 agent/assistant/model 名词，
-// 因为各家 harness 的自述句式差别很大，窄正则只会漏。
-//
-// 注意：Go 的 RE2 **不支持前瞻/后顾断言**（(?=...) 会 panic），
-// 所以句尾用「非贪婪到句号」而不是「句号且后面是空白」来表达。
-//
-// 句尾必须是 `\.(?:\s|$)`，不能是裸 `\.`：模型名 "deepseek-v4.1-flash"
-// 里的点会被当成句号，正则提前收尾，清洗出
-// "You are a helpful AI assistant.1-flash model." 这种残留
-// —— 实测过的真 bug，别改回去。
-var sanitizeIdentity = regexp.MustCompile(`(?i)You are\s+` +
-	`(?:an?\s+|the\s+)?(?:[\w.-]+\s+){0,3}?` +
-	`(?:agent|assistant|model|AI|LLM)?[\s,]*` +
-	`(?:powered by|built on|built by|created by|developed by|made by|trained by)` +
-	`[^\n]*?\.(\s|$)`)
-
-// sanitizeBrandPhrases 已知会被当作「非批准渠道」的品牌自述片段。
-//
-// 这些是整句指纹正则抓不到、但同样会触发拦截的短标记。
-// 键为待匹配片段（大小写不敏感），值为替换文本。
-//
-// 替换文本刻意**不带冠词**（不用 "the command line"）：原文常写成
-// "in the Codex CLI"，带冠词会拼出 "the the command line"。
-// 冠词由原文保留，替换只换核心名词短语。
-var sanitizeBrandPhrases = []struct{ from, to string }{
-	{"DeepSeek Harness", "assistant runtime"},
-	{"Codex CLI", "command line"},
-	{"Claude Code", "assistant"},
-	{"Claude Agent SDK", "assistant runtime"},
-	{"x-anthropic-billing-header", ""},
-	{"cc_entrypoint=", ""},
+// 注意 `"11128"` → `"11-128"` 这一条：把上游自己的错误码写进提示词也算指纹。
+var sanitizeRewrites = [][2]string{
+	{"Main branch (you will usually use this for PRs)",
+		"Default branch (you will usually use this for PRs)"},
+	{"To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues",
+		"To provide feedback, users should report the issue at https://github.com/anthropics/claude-code/issues"},
+	{"11128", "11-128"},
 }
 
 // toolNameRE 上游接受的工具名形态。
@@ -179,18 +177,51 @@ func sanitizeMessages(obj map[string]any) {
 	}
 }
 
-// sanitizeText 清洗一段文本里的身份指纹。
+// sanitizeText 清洗一段文本里的渠道指纹。
+//
+// 步骤与顺序对齐 hub 的 sanitize_text（hub_wb_proxy.py:13447-13479）：
+// 先换掉整句自述，再修 GUI / 文件引用两段的连续匹配，最后才缩减品牌词。
 func sanitizeText(s string) string {
 	if s == "" {
 		return s
 	}
-	out := sanitizeIdentity.ReplaceAllString(s, sanitizeIdentityRepl)
-	out = sanitizeIdentityTail.ReplaceAllString(out, ".")
-	for _, p := range sanitizeBrandPhrases {
-		if strings.Contains(strings.ToLower(out), strings.ToLower(p.from)) {
-			out = replaceAllFold(out, p.from, p.to)
+	out := s
+
+	// 1. 自述首段整句中性化（Codex / Claude Code 本身就是官方特征表里的指纹）
+	out = reCodexIntro.ReplaceAllString(out, sanitizeIdentityRepl)
+	out = reClaudeIntro.ReplaceAllString(out, sanitizeIdentityRepl)
+
+	// 2. 通用身份句；${1} 把句尾的空白原样带回，避免把两句黏在一起
+	out = reIdentity.ReplaceAllString(out, sanitizeIdentityRepl+"${1}")
+
+	// 3. DSH Web GUI 描述句：只调句尾语序
+	out = reDSHGUI.ReplaceAllString(out,
+		"${1} whose URL is named in the runtime context.")
+
+	// 4. 文件引用段：补一个 that，打断整段连续匹配
+	out = reDSHFileRef.ReplaceAllString(out, "${1}that the user explicitly referenced.")
+
+	// 5. 品牌缩减必须排在上面两条之后（GUI 规则认全名）
+	out = reBrand.ReplaceAllString(out, "DeepSeek")
+
+	// 6. 字面量改写（含把上游错误码写进提示词的情况）
+	for _, r := range sanitizeRewrites {
+		if strings.Contains(out, r[0]) {
+			out = strings.ReplaceAll(out, r[0], r[1])
 		}
 	}
+
+	// 7. 第三方 SDK 的计费头痕迹
+	out = reHdr.ReplaceAllString(out, "")
+	if strings.Contains(out, "cc_") {
+		prev := ""
+		for prev != out {
+			prev = out
+			out = reKV.ReplaceAllString(out, "")
+		}
+	}
+	out = reBareHdr.ReplaceAllString(out, "x-anthropic-billing-hdr")
+
 	// 空文本段会让上游 11151，补一个空格
 	if strings.TrimSpace(out) == "" && s != "" {
 		return " "
